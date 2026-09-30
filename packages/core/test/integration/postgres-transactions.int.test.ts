@@ -1,5 +1,5 @@
 import { setTimeout } from 'node:timers/promises';
-import type { DataSource, EntityManager } from 'typeorm';
+import type { DataSource, EntityManager, QueryRunner } from 'typeorm';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { InProcessEventPublisher } from '../../src/events/in-process-event-publisher';
 import { UnitOfWork } from '../../src/unit-of-work';
@@ -89,5 +89,28 @@ describe('transactions on postgres only', () => {
     });
 
     expect(queryRunners.unreleasedCount()).toBe(0);
+  });
+
+  it('leaves no connection idle in a transaction when starting the transaction fails', async () => {
+    const failingSubscriber = {
+      afterTransactionStart: () => {
+        throw new Error('subscriber failed');
+      },
+    };
+    dataSource.subscribers.push(failingSubscriber);
+
+    const running = uow.run(async () => undefined);
+    await expect(running).rejects.toThrow('subscriber failed');
+    dataSource.subscribers.pop();
+
+    const [first, second] = [dataSource.createQueryRunner(), dataSource.createQueryRunner()];
+    const idleInTransaction = (queryRunner: QueryRunner) =>
+      queryRunner.query(
+        "select count(*)::int as count from pg_stat_activity where datname = current_database() and state = 'idle in transaction'",
+      );
+    const counts: readonly { count: number }[][] = await Promise.all([idleInTransaction(first), idleInTransaction(second)]);
+    await Promise.all([first.release(), second.release()]);
+
+    expect(Math.max(...counts.map((rows) => rows[0]?.count ?? 0))).toBe(0);
   });
 });

@@ -135,6 +135,6 @@ describe.each(databases)('transactions on $name', (database) => {
     const running = uow.run(async () => undefined, { propagation: 'required' as never });
 
     await expect(running).rejects.toBeInstanceOf(InvalidUnitOfWorkOptionsError);
-    expect(queryRunners.unreleasedCount()).toBe(0);
+    expect(dataSource.createQueryRunner).not.toHaveBeenCalled();
   });
 });

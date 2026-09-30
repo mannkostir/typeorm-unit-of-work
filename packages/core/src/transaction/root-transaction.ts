@@ -25,7 +25,7 @@ export class RootTransaction {
     const scope = new TransactionScope(queryRunner);
     try {
       return await registry.withBinding(queryRunner, scope, async () => {
-        await queryRunner.startTransaction(options.isolationLevel);
+        await abortOnFailure(scope, () => queryRunner.startTransaction(options.isolationLevel));
         return this.#settle(scope, work, options);
       });
     } finally {
