@@ -185,6 +185,12 @@ describe('UnitOfWorkModule bootstrap checks', () => {
     async run(): Promise<void> {}
   }
 
+  @Injectable({ scope: Scope.TRANSIENT })
+  class TransientService {
+    @Transactional()
+    async run(): Promise<void> {}
+  }
+
   @Controller()
   class OrdersController {
     @Transactional()
@@ -194,6 +200,12 @@ describe('UnitOfWorkModule bootstrap checks', () => {
   it('fails bootstrap for @Transactional on a request-scoped provider', async () => {
     await expect(
       compile({ imports: [DatabaseModule, CqrsModule.forRoot(), unitOfWorkModule()], providers: [RequestScopedService] }),
+    ).rejects.toBeInstanceOf(TransactionalBindingError);
+  });
+
+  it('fails bootstrap for @Transactional on a transient provider', async () => {
+    await expect(
+      compile({ imports: [DatabaseModule, CqrsModule.forRoot(), unitOfWorkModule()], providers: [TransientService] }),
     ).rejects.toBeInstanceOf(TransactionalBindingError);
   });
 

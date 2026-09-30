@@ -8,6 +8,10 @@ type DiscoveredWrapper = ReturnType<DiscoveryService['getProviders']>[number];
 
 type Method = (...args: unknown[]) => unknown;
 
+function isSingletonBindable(wrapper: DiscoveredWrapper): boolean {
+  return wrapper.isDependencyTreeStatic() && !wrapper.isTransient;
+}
+
 interface DecoratedMethod {
   readonly name: string;
   readonly options: RunOptions<unknown>;
@@ -33,7 +37,7 @@ export class TransactionalMethodsBinder implements OnModuleInit {
   }
 
   #bindProvider(wrapper: DiscoveredWrapper): void {
-    if (!wrapper.isDependencyTreeStatic()) {
+    if (!isSingletonBindable(wrapper)) {
       this.#rejectDecoratedMethods(wrapper, 'the provider is request-scoped or transient; make it a singleton');
       return;
     }
