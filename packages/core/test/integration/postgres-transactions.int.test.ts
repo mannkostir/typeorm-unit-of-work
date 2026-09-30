@@ -1,5 +1,5 @@
 import { setTimeout } from 'node:timers/promises';
-import type { DataSource, EntityManager, QueryRunner } from 'typeorm';
+import { type DataSource, type EntityManager, QueryFailedError, type QueryRunner } from 'typeorm';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { InProcessEventPublisher } from '../../src/events/in-process-event-publisher';
 import { UnitOfWork } from '../../src/unit-of-work';
@@ -81,6 +81,17 @@ describe('transactions on postgres only', () => {
       secondConsistent: second?.[0] === second?.[1],
       separate: first?.[0] !== second?.[0],
     }).toEqual({ firstConsistent: true, secondConsistent: true, separate: true });
+  });
+
+  it('commits nothing when a failed statement inside a joined run is caught', async () => {
+    await uow.run(async () => {
+      await uow.getRepository(Order).save(Order.place('o-1'));
+      await expect(uow.run(() => uow.getRepository(Order).insert({ id: 'o-1', status: 'duplicate' }))).rejects.toThrow(
+        QueryFailedError,
+      );
+    });
+
+    expect(await dataSource.getRepository(Order).count()).toBe(0);
   });
 
   it('releases both query runners of a new transaction nested in another', async () => {

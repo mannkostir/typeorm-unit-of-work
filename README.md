@@ -16,7 +16,9 @@ For NestJS, add the adapter:
 npm install typeorm-unit-of-work-nestjs
 ```
 
-Requires Node `^22.13.0 || >=24.11.0` and `typeorm ^0.3.20 || ^1.0.0`.
+Requires Node `^22.13.0 || >=24.11.0` and `typeorm ^0.3.20 || ^1.0.0`. The NestJS adapter supports `@nestjs/common` and `@nestjs/core` 11 and 12; `@nestjs/cqrs` 11 or 12 is optional.
+
+Import the packages consistently, either all as ESM or all as CommonJS. Mixing the two loads each package twice, which duplicates its classes (so `instanceof` checks and Nest DI tokens stop matching) and the per-`DataSource` subscriber registry.
 
 ## Quick start
 
@@ -75,9 +77,11 @@ Before commit, after `work` resolves, the unit of work repeatedly pulls events f
 After the commit succeeds, `publisher.afterCommit(events, onAfterCommitError)` runs. After-commit handlers:
 
 - see committed data and run outside any transaction, even when the committed run was a `new` scope opened inside another;
-- cannot fail the unit of work: an error from a handler goes to `onAfterCommitError` and the remaining handlers still run, and `run()` still resolves with the result.
+- cannot fail the unit of work: an error from a handler goes to `onAfterCommitError` and the remaining handlers still run, and `run()` still resolves with the result. The one exception is `onAfterCommitError` itself throwing: `run()` then rejects with that error, even though the data is already committed.
 
-If `work` throws, `commitWhen` returns `false` or a before-commit handler throws, the transaction rolls back, pending events are discarded and no after-commit handler runs.
+If `work` throws, `commitWhen` returns `false` or throws, or a before-commit handler throws, the transaction rolls back, pending events are discarded and no after-commit handler runs. An error thrown by `commitWhen` is rethrown unchanged.
+
+Events are ordered per aggregate, not globally. When a savepoint's aggregates merge into its parent, events of different aggregates may be delivered in a different order from the one they were raised in; the events of one aggregate keep their order.
 
 `InProcessEventPublisher` matches handlers with `event instanceof EventClass` and runs them sequentially, in registration order, per event, in event order. Register them with `onBeforeCommit(EventClass, (event, tx) => ...)` and `onAfterCommit(EventClass, (event) => ...)`. To deliver events elsewhere, implement the `DomainEventPublisher` interface.
 
@@ -85,15 +89,21 @@ If `work` throws, `commitWhen` returns `false` or a before-commit handler throws
 
 | `propagation` | No current scope | Current scope exists |
 |---|---|---|
-| `'join'` (default) | Opens a root transaction: drains events, commits, publishes after commit. | Runs `work` inside the current scope with no boundary of its own. Nothing is drained, committed or published at this level, and `commitWhen` and `isolationLevel` are ignored. An error the caller catches does not roll the outer transaction back. |
+| `'join'` (default) | Opens a root transaction: drains events, commits, publishes after commit. | Runs `work` inside the current scope with no boundary of its own. Nothing is drained, committed or published at this level, and `commitWhen` and `isolationLevel` are ignored. An application error the caller catches does not roll the outer transaction back, but a failed database statement does on Postgres (see below). |
 | `'new'` | Same as above. | Opens a root transaction on a new query runner, with its own commit and its own events, regardless of the outer scope. It holds two pooled connections while nested. The outer scope is restored when it finishes. |
-| `'nested'` | Behaves as `'new'`. | Opens a savepoint on the parent's query runner. On success the savepoint is released and the tracked aggregates merge into the parent; events are drained only at the root. On failure, or when `commitWhen` returns `false`, it rolls back to the savepoint and discards the events raised inside it. |
+| `'nested'` | Behaves as `'new'`. | Opens a savepoint on the parent's query runner. On success the savepoint is released and the tracked aggregates merge into the parent; events are drained only at the root. On failure, or when `commitWhen` returns `false`, it rolls back to the savepoint and discards the events raised inside it. `isolationLevel` is ignored. |
 
 Events raised before a savepoint survive its rollback, at any nesting depth: the unit of work holds the pending events of every enclosing scope while a savepoint is open.
 
+Postgres aborts the whole transaction when a statement fails. A caught database error inside a `'join'` run therefore leaves the outer transaction unusable: its `COMMIT` silently rolls back, `run()` still resolves, and after-commit handlers run for data that was never committed. To recover from a failed statement and keep the outer work, run the statement with `propagation: 'nested'`, as [the savepoint recovery test](packages/core/test/integration/savepoints.int.test.ts) does.
+
+Savepoints on one transaction cannot overlap. Await `'nested'` runs one after another; starting a second `'nested'` run on the same parent while one is still open, for example with `Promise.all`, rejects it with `ConcurrentSavepointError` before it touches the connection.
+
+A scope ends when its transaction or savepoint finishes. A promise started inside `work` and left running afterwards cannot use it: `uow.manager`, `uow.getRepository()` and `uow.track()` called from it throw `ScopeNotActiveError`, and `uow.run()` with any propagation rejects with it.
+
 SQLite limitation: SQLite shares one connection, so every query runner is the same object. `propagation: 'new'` inside a scope throws `ConnectionAlreadyInTransactionError`, and concurrent units of work are not supported on SQLite. Use `'join'` or `'nested'`.
 
-Limitation: an event raised inside a savepoint that rolls back, on an aggregate that the savepoint never saved, is not discarded. Only the events of aggregates tracked by the savepoint are dropped on rollback.
+Limitation: an event raised inside a savepoint that rolls back, on an aggregate that savepoint had not tracked by the time an inner savepoint opened (or never tracked), is not discarded. Only the events of aggregates tracked by the savepoint are dropped on rollback.
 
 ## Options reference
 
@@ -107,13 +117,13 @@ Limitation: an event raised inside a savepoint that rolls back, on an aggregate 
 | `maxEventRounds` | `number` | `100` | An integer of at least 1. |
 | `strict` | `boolean` | `false` | Throw `ScopeNotActiveError` from `manager` and `getRepository()` outside a scope, instead of falling back to `dataSource.manager`. |
 
-`RunOptions`, passed as the second argument of `uow.run(work, options)`:
+`RunOptions<Result>`, passed as the second argument of `uow.run(work, options)`. It is generic over the result of `work`, so `commitWhen` is typed `(result: Result) => boolean`:
 
 | Option | Type | Default | Notes |
 |---|---|---|---|
 | `propagation` | `'join' \| 'new' \| 'nested'` | `'join'` | See Propagation. |
-| `isolationLevel` | TypeORM `IsolationLevel` | driver default | Applies only when a new transaction is opened. |
-| `commitWhen` | `(result) => boolean` | always `true` | When it returns `false`, the transaction rolls back and `run()` returns the result. |
+| `isolationLevel` | TypeORM `IsolationLevel` | driver default | Applies only when a new transaction is opened. Ignored by `'join'` and by `'nested'` when a parent scope exists. |
+| `commitWhen` | `(result: Result) => boolean` | always `true` | When it returns `false`, the transaction rolls back and `run()` returns the result. When it throws, the transaction rolls back and `run()` rejects with that error. |
 
 `UnitOfWork` members: `run(work, options?)`, `manager`, `getRepository(target)` and `track(aggregate)`. `work` receives a `TransactionContext` exposing `manager` and `getRepository`; the query runner is never exposed.
 
@@ -125,13 +135,14 @@ Every error extends `UnitOfWorkError`.
 |---|---|
 | `TransactionRollbackError` | The rollback itself failed. Carries `originalError` and `rollbackError`; `originalError` is `undefined` when the rollback was caused by `commitWhen` returning `false`. |
 | `EventCascadeLimitExceededError` | Before-commit handlers were still raising events after `maxEventRounds` rounds. Carries `rounds` and `lastRoundEventNames`. The transaction rolls back. |
-| `ScopeNotActiveError` | `track()` is called outside a scope, or `manager` or `getRepository()` is used outside a scope when `strict` is on. |
+| `ScopeNotActiveError` | `track()` is called outside a scope, or `manager` or `getRepository()` is used outside a scope when `strict` is on, or any of `manager`, `getRepository()`, `track()` and `run()` is called from a scope that has already finished. |
 | `DataSourceNotInitializedError` | The `UnitOfWork` constructor receives a `DataSource` that is not initialized. |
-| `InvalidUnitOfWorkOptionsError` | Constructor or `run()` options are invalid. Carries `option`. |
+| `InvalidUnitOfWorkOptionsError` | Constructor or `run()` options are invalid, including a missing `dataSource`. Carries `option`. |
 | `ConnectionAlreadyInTransactionError` | A root scope is requested on a driver whose query runner is already inside a transaction, as on SQLite. |
+| `ConcurrentSavepointError` | A `'nested'` run starts while another `'nested'` run on the same parent is still open. Await nested runs sequentially. |
 | `TransactionalBindingError` | From the NestJS adapter: `@Transactional()` is on a controller, or on a provider that is request-scoped or transient. |
 
-Errors thrown by `work` or by before-commit handlers are rethrown unchanged after the rollback. After-commit handler errors never reject `run()`.
+Errors thrown by `work`, by `commitWhen` or by before-commit handlers are rethrown unchanged after the rollback. After-commit handler errors never reject `run()`, unless `onAfterCommitError` itself throws.
 
 ## NestJS
 
@@ -160,7 +171,7 @@ export class AppModule {}
 
 `UnitOfWorkModule` is global and exports a `UnitOfWork`. `CqrsEventBusPublisher` accepts any `{ publish(event: object): unknown }`, so the adapter has no dependency on `@nestjs/cqrs`. After commit it runs the after-commit handlers of a wrapped `InProcessEventPublisher` (pass your own as the second constructor argument), then publishes each event to the bus; a failed publish is reported to `onAfterCommitError`.
 
-Decorate a provider method with `@Transactional()`. It takes the same `RunOptions` as `uow.run()`:
+Decorate a provider method with `@Transactional()`. It takes the same `RunOptions` as `uow.run()`, and it only accepts methods that return a `Promise`, because the decorated method runs inside `uow.run()` and always returns one:
 
 ```ts
 import { Inject, Injectable } from '@nestjs/common';
@@ -192,7 +203,7 @@ The decorator only records metadata. In `onModuleInit`, the adapter finds every 
 ## Migrating from `typeorm-transactional`
 
 - Replace `@Transactional()` from `typeorm-transactional` with `@Transactional()` from `typeorm-unit-of-work-nestjs`, or wrap the code in `uow.run()`.
-- Inside transactional code, replace `dataSource.getRepository(X)` with `uow.getRepository(X)`.
+- Repositories injected with `@InjectRepository()` or obtained from `dataSource.getRepository()` are not transactional here: they use `dataSource.manager`, so their writes bypass the unit of work and commit on their own. Inside transactional code, replace them with `uow.getRepository(X)` or `context.getRepository(X)`.
 - Replace `runOnTransactionCommit(cb)` with an after-commit handler on a domain event: raise the event from the aggregate and register the callback with `onAfterCommit`.
 
 ## Compared with `@nestjs-cls/transactional`
