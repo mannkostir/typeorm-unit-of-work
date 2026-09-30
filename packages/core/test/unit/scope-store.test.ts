@@ -61,7 +61,7 @@ describe('ScopeStore', () => {
       }),
     ]);
 
-    expect(seen).toEqual([first, second]);
+    expect(seen[0] === first && seen[1] === second).toBe(true);
   });
 
   it('keeps separate stores apart', async () => {
