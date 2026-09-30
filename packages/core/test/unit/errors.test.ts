@@ -1,0 +1,55 @@
+import { describe, expect, it } from 'vitest';
+import {
+  ConnectionAlreadyInTransactionError,
+  DataSourceNotInitializedError,
+  EventCascadeLimitExceededError,
+  InvalidUnitOfWorkOptionsError,
+  ScopeNotActiveError,
+  TransactionRollbackError,
+  UnitOfWorkError,
+} from '../../src/errors/unit-of-work-errors';
+
+describe('unit of work errors', () => {
+  it('names each error after its class', () => {
+    expect(new ScopeNotActiveError('uow.track()').name).toBe('ScopeNotActiveError');
+  });
+
+  it('makes every library error a UnitOfWorkError', () => {
+    expect(new DataSourceNotInitializedError()).toBeInstanceOf(UnitOfWorkError);
+  });
+
+  it('keeps both errors when a rollback fails', () => {
+    const original = new Error('work failed');
+    const rollback = new Error('connection lost');
+
+    const error = new TransactionRollbackError(original, rollback);
+
+    expect(error).toMatchObject({ originalError: original, rollbackError: rollback, cause: rollback });
+  });
+
+  it('reports the rounds and last event names when the cascade limit is exceeded', () => {
+    const error = new EventCascadeLimitExceededError(3, ['OrderShipped', 'InvoiceIssued']);
+
+    expect(error.message).toBe(
+      'Before-commit handlers were still raising events after 3 rounds (last round: OrderShipped, InvoiceIssued). Break the handler cycle or raise maxEventRounds.',
+    );
+  });
+
+  it('names the invalid option and the fix', () => {
+    const error = new InvalidUnitOfWorkOptionsError('maxEventRounds', 'must be an integer of at least 1');
+
+    expect(error.message).toBe('Invalid unit of work option "maxEventRounds": must be an integer of at least 1');
+  });
+
+  it('tells the caller which operation needs a unit of work', () => {
+    expect(new ScopeNotActiveError('uow.track()').message).toBe(
+      'uow.track() needs an active unit of work; call it inside uow.run()',
+    );
+  });
+
+  it('explains why a shared connection cannot open an independent transaction', () => {
+    expect(new ConnectionAlreadyInTransactionError('better-sqlite3').message).toBe(
+      'The better-sqlite3 driver returned a query runner that is already inside a transaction. It shares one connection, so propagation "new" and concurrent units of work are not supported on it; use "join" or "nested".',
+    );
+  });
+});
