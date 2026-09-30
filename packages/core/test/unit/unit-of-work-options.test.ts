@@ -75,7 +75,7 @@ describe('resolveRunOptions', () => {
 
   it('rejects an unknown propagation', () => {
     expect(() => resolveRunOptions({ propagation: 'required' as never })).toThrow(
-      new InvalidUnitOfWorkOptionsError('propagation', 'must be one of join, new'),
+      new InvalidUnitOfWorkOptionsError('propagation', 'must be one of join, new, nested'),
     );
   });
 });

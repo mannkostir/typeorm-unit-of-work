@@ -4,7 +4,7 @@ import type { AfterCommitErrorHandler, DomainEventPublisher } from './events/dom
 
 export type IsolationLevel = NonNullable<Parameters<QueryRunner['startTransaction']>[0]>;
 
-export type Propagation = 'join' | 'new';
+export type Propagation = 'join' | 'new' | 'nested';
 
 export interface UnitOfWorkOptions {
   readonly dataSource: DataSource;
@@ -34,7 +34,7 @@ export interface ResolvedRunOptions<Result> {
   readonly commitWhen: (result: Result) => boolean;
 }
 
-const propagations: readonly Propagation[] = ['join', 'new'];
+const propagations: readonly Propagation[] = ['join', 'new', 'nested'];
 
 const defaultMaxEventRounds = 100;
 

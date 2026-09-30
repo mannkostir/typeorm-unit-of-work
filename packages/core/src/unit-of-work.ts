@@ -2,11 +2,13 @@ import type { EntityManager, EntityTarget, ObjectLiteral, Repository } from 'typ
 import { ScopeNotActiveError } from './errors/unit-of-work-errors';
 import type { DomainEventSource } from './events/domain-event-source';
 import { JoinPropagation } from './propagation/join-propagation';
+import { NestedPropagation } from './propagation/nested-propagation';
 import { NewPropagation } from './propagation/new-propagation';
 import type { PropagationStrategy, TransactionalWork } from './propagation/propagation-strategy';
 import { ScopeStore } from './scope/scope-store';
 import { eventCollectionFor } from './subscriber/event-collection';
 import { RootTransaction } from './transaction/root-transaction';
+import { SavepointTransaction } from './transaction/savepoint-transaction';
 import {
   type Propagation,
   type ResolvedUnitOfWorkOptions,
@@ -23,10 +25,11 @@ export class UnitOfWork {
 
   constructor(options: UnitOfWorkOptions) {
     this.settings = resolveUnitOfWorkOptions(options);
+    const registry = eventCollectionFor(this.settings.dataSource);
     const root = new RootTransaction({
       dataSource: this.settings.dataSource,
       store: this.store,
-      registry: eventCollectionFor(this.settings.dataSource),
+      registry,
       publisher: this.settings.publisher,
       onAfterCommitError: this.settings.onAfterCommitError,
       maxEventRounds: this.settings.maxEventRounds,
@@ -34,6 +37,7 @@ export class UnitOfWork {
     this.strategies = {
       join: new JoinPropagation(this.store, root),
       new: new NewPropagation(root),
+      nested: new NestedPropagation(this.store, root, new SavepointTransaction(this.store, registry)),
     };
   }
 
