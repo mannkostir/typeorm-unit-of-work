@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { InProcessEventPublisher } from '../../src/events/in-process-event-publisher';
 import { UnitOfWork } from '../../src/unit-of-work';
 import { postgres } from './support/databases';
-import { Order } from './support/model';
+import { Order, OrderPlaced } from './support/model';
 import { type QueryRunnerWatch, watchQueryRunners } from './support/query-runner-watch';
 
 describe('transactions on postgres only', () => {
@@ -112,5 +112,33 @@ describe('transactions on postgres only', () => {
     await Promise.all([first.release(), second.release()]);
 
     expect(Math.max(...counts.map((rows) => rows[0]?.count ?? 0))).toBe(0);
+  });
+
+  it('runs after-commit handlers of a new transaction outside the outer one', async () => {
+    const publisher = new InProcessEventPublisher();
+    const seen: { handler?: EntityManager } = {};
+    const eventful = new UnitOfWork({
+      dataSource,
+      publisher,
+      onAfterCommitError: (error) => {
+        throw error;
+      },
+    });
+    publisher.onAfterCommit(OrderPlaced, () => {
+      seen.handler = eventful.manager;
+    });
+
+    await eventful.run(async () => {
+      await eventful.run(
+        async () => {
+          const order = Order.place('o-1');
+          await eventful.getRepository(Order).save(order);
+          eventful.track(order);
+        },
+        { propagation: 'new' },
+      );
+    });
+
+    expect(seen.handler).toBe(dataSource.manager);
   });
 });

@@ -1,5 +1,6 @@
 import type { EntityManager, EntityTarget, ObjectLiteral, Repository } from 'typeorm';
 import { ScopeNotActiveError } from './errors/unit-of-work-errors';
+import type { DomainEventSource } from './events/domain-event-source';
 import { JoinPropagation } from './propagation/join-propagation';
 import { NewPropagation } from './propagation/new-propagation';
 import type { PropagationStrategy, TransactionalWork } from './propagation/propagation-strategy';
@@ -26,6 +27,9 @@ export class UnitOfWork {
       dataSource: this.settings.dataSource,
       store: this.store,
       registry: new ScopeRegistry(),
+      publisher: this.settings.publisher,
+      onAfterCommitError: this.settings.onAfterCommitError,
+      maxEventRounds: this.settings.maxEventRounds,
     });
     this.strategies = {
       join: new JoinPropagation(this.store, root),
@@ -51,5 +55,13 @@ export class UnitOfWork {
   async run<Result>(work: TransactionalWork<Result>, options?: RunOptions<Result>): Promise<Result> {
     const resolved = resolveRunOptions(options);
     return this.strategies[resolved.propagation].run(work, resolved);
+  }
+
+  track(aggregate: DomainEventSource): void {
+    const scope = this.store.current();
+    if (scope === undefined) {
+      throw new ScopeNotActiveError('uow.track()');
+    }
+    scope.aggregates.track(aggregate);
   }
 }

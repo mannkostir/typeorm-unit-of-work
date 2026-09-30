@@ -1,5 +1,7 @@
 import type { DataSource } from 'typeorm';
 import { ConnectionAlreadyInTransactionError } from '../errors/unit-of-work-errors';
+import type { AfterCommitErrorHandler, DomainEventPublisher } from '../events/domain-event-publisher';
+import { drainBeforeCommit } from '../events/drain-before-commit';
 import type { TransactionalWork } from '../propagation/propagation-strategy';
 import type { ScopeRegistry } from '../scope/scope-registry';
 import type { ScopeStore } from '../scope/scope-store';
@@ -11,12 +13,30 @@ export interface RootTransactionDependencies {
   readonly dataSource: DataSource;
   readonly store: ScopeStore;
   readonly registry: ScopeRegistry;
+  readonly publisher: DomainEventPublisher;
+  readonly onAfterCommitError: AfterCommitErrorHandler;
+  readonly maxEventRounds: number;
+}
+
+interface Settlement<Result> {
+  readonly result: Result;
+  readonly committedEvents: readonly object[];
 }
 
 export class RootTransaction {
   constructor(private readonly dependencies: RootTransactionDependencies) {}
 
   async run<Result>(work: TransactionalWork<Result>, options: ResolvedRunOptions<Result>): Promise<Result> {
+    const { store, publisher, onAfterCommitError } = this.dependencies;
+    const settlement = await this.#runInNewTransaction(work, options);
+    await store.runDetached(() => publisher.afterCommit(settlement.committedEvents, onAfterCommitError));
+    return settlement.result;
+  }
+
+  async #runInNewTransaction<Result>(
+    work: TransactionalWork<Result>,
+    options: ResolvedRunOptions<Result>,
+  ): Promise<Settlement<Result>> {
     const { dataSource, registry } = this.dependencies;
     const queryRunner = dataSource.createQueryRunner();
     if (queryRunner.isTransactionActive) {
@@ -37,13 +57,22 @@ export class RootTransaction {
     scope: TransactionScope,
     work: TransactionalWork<Result>,
     options: ResolvedRunOptions<Result>,
-  ): Promise<Result> {
+  ): Promise<Settlement<Result>> {
     const result = await abortOnFailure(scope, () => this.dependencies.store.runIn(scope, () => work(scope.context)));
     if (!options.commitWhen(result)) {
       await abortScope(scope, undefined);
-      return result;
+      return { result, committedEvents: [] };
     }
-    await abortOnFailure(scope, () => scope.queryRunner.commitTransaction());
-    return result;
+    const committedEvents = await abortOnFailure(scope, () => this.#commit(scope));
+    return { result, committedEvents };
+  }
+
+  async #commit(scope: TransactionScope): Promise<readonly object[]> {
+    const { store, publisher, maxEventRounds } = this.dependencies;
+    const events = await store.runIn(scope, () =>
+      drainBeforeCommit(scope.aggregates, (batch) => publisher.beforeCommit(batch, scope.context), maxEventRounds),
+    );
+    await scope.queryRunner.commitTransaction();
+    return events;
   }
 }
