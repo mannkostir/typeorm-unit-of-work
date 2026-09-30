@@ -6,6 +6,7 @@ import { NestedPropagation } from './propagation/nested-propagation';
 import { NewPropagation } from './propagation/new-propagation';
 import type { PropagationStrategy, TransactionalWork } from './propagation/propagation-strategy';
 import { ScopeStore } from './scope/scope-store';
+import type { TransactionScope } from './scope/transaction-scope';
 import { eventCollectionFor } from './subscriber/event-collection';
 import { RootTransaction } from './transaction/root-transaction';
 import { SavepointTransaction } from './transaction/savepoint-transaction';
@@ -42,30 +43,41 @@ export class UnitOfWork {
   }
 
   get manager(): EntityManager {
-    const scope = this.store.current();
-    if (scope !== undefined) {
-      return scope.context.manager;
-    }
-    if (this.settings.strict) {
-      throw new ScopeNotActiveError('uow.manager');
-    }
-    return this.settings.dataSource.manager;
+    return this.#managerFor('uow.manager');
   }
 
   getRepository<Entity extends ObjectLiteral>(target: EntityTarget<Entity>): Repository<Entity> {
-    return this.manager.getRepository(target);
+    return this.#managerFor('uow.getRepository()').getRepository(target);
   }
 
   async run<Result>(work: TransactionalWork<Result>, options?: RunOptions<Result>): Promise<Result> {
     const resolved = resolveRunOptions(options);
+    this.store.current()?.ensureOpen('uow.run()');
     return this.strategies[resolved.propagation].run(work, resolved);
   }
 
   track(aggregate: DomainEventSource): void {
-    const scope = this.store.current();
+    const scope = this.#openScope('uow.track()');
     if (scope === undefined) {
       throw new ScopeNotActiveError('uow.track()');
     }
     scope.aggregates.track(aggregate);
+  }
+
+  #managerFor(operation: string): EntityManager {
+    const scope = this.#openScope(operation);
+    if (scope !== undefined) {
+      return scope.context.manager;
+    }
+    if (this.settings.strict) {
+      throw new ScopeNotActiveError(operation);
+    }
+    return this.settings.dataSource.manager;
+  }
+
+  #openScope(operation: string): TransactionScope | undefined {
+    const scope = this.store.current();
+    scope?.ensureOpen(operation);
+    return scope;
   }
 }

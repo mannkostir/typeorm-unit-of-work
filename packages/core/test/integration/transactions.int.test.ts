@@ -11,6 +11,23 @@ const failOnAfterCommitError = (error: unknown): never => {
   throw error;
 };
 
+const gate = () => {
+  const handle = { open: (): void => undefined };
+  const opened = new Promise<void>((resolve) => {
+    handle.open = resolve;
+  });
+  return { opened, open: () => handle.open() };
+};
+
+const lateOperations: readonly [string, (uow: UnitOfWork) => unknown][] = [
+  ['uow.manager', (uow) => uow.manager],
+  ['uow.getRepository()', (uow) => uow.getRepository(Order)],
+  ['uow.track()', (uow) => uow.track(Order.place('o-1'))],
+  ['a joined uow.run()', (uow) => uow.run(async () => undefined)],
+  ['a new uow.run()', (uow) => uow.run(async () => undefined, { propagation: 'new' })],
+  ['a nested uow.run()', (uow) => uow.run(async () => undefined, { propagation: 'nested' })],
+];
+
 describe.each(databases)('transactions on $name', (database) => {
   let dataSource: DataSource;
   let queryRunners: QueryRunnerWatch;
@@ -132,6 +149,36 @@ describe.each(databases)('transactions on $name', (database) => {
       unreleased: queryRunners.unreleasedCount(),
       releasedInsideTransaction: queryRunners.releasedInsideTransaction(),
     }).toEqual({ unreleased: 0, releasedInsideTransaction: false });
+  });
+
+  it.each(lateOperations)('refuses %s from a promise that outlives its run', async (_, operation) => {
+    const finished = gate();
+    const escaped = { outcome: Promise.resolve<unknown>(undefined) };
+
+    await uow.run(async () => {
+      escaped.outcome = finished.opened.then(() => operation(uow));
+    });
+    finished.open();
+
+    await expect(escaped.outcome).rejects.toBeInstanceOf(ScopeNotActiveError);
+  });
+
+  it('refuses to track from a promise that outlives its savepoint while the outer run is still open', async () => {
+    const finished = gate();
+    const escaped = { outcome: Promise.resolve<unknown>(undefined) };
+
+    const outcome = await uow.run(async () => {
+      await uow.run(
+        async () => {
+          escaped.outcome = finished.opened.then(() => uow.track(Order.place('o-1')));
+        },
+        { propagation: 'nested' },
+      );
+      finished.open();
+      return escaped.outcome.catch((error: unknown) => error);
+    });
+
+    expect(outcome).toBeInstanceOf(ScopeNotActiveError);
   });
 
   it('rejects an unknown propagation without opening a transaction', async () => {

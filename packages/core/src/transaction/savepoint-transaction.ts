@@ -27,8 +27,12 @@ export class SavepointTransaction {
     const child = new TransactionScope(parent.queryRunner, parent);
     parent.holdPendingEventsAlongAncestry();
     return this.registry.withBinding(parent.queryRunner, child, async () => {
-      await parent.queryRunner.startTransaction();
-      return this.#settle(parent, child, work, options);
+      try {
+        await parent.queryRunner.startTransaction();
+        return await this.#settle(parent, child, work, options);
+      } finally {
+        child.close();
+      }
     });
   }
 

@@ -1,5 +1,5 @@
 import type { QueryRunner } from 'typeorm';
-import { ConcurrentSavepointError } from '../errors/unit-of-work-errors';
+import { ConcurrentSavepointError, ScopeNotActiveError } from '../errors/unit-of-work-errors';
 import { type TransactionContext, transactionContextOf } from '../transaction-context';
 import { AggregateTracker } from './aggregate-tracker';
 
@@ -7,6 +7,7 @@ export class TransactionScope {
   readonly context: TransactionContext;
   readonly aggregates = new AggregateTracker();
   #childSavepointOpen = false;
+  #closed = false;
 
   constructor(
     readonly queryRunner: QueryRunner,
@@ -29,6 +30,16 @@ export class TransactionScope {
       return await savepoint();
     } finally {
       this.#childSavepointOpen = false;
+    }
+  }
+
+  close(): void {
+    this.#closed = true;
+  }
+
+  ensureOpen(operation: string): void {
+    if (this.#closed) {
+      throw new ScopeNotActiveError(operation);
     }
   }
 }

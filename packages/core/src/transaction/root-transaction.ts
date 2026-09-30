@@ -49,6 +49,7 @@ export class RootTransaction {
         return this.#settle(scope, work, options);
       });
     } finally {
+      scope.close();
       await rollBackLeftoverTransaction(queryRunner);
       await queryRunner.release();
     }
