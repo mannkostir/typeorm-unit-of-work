@@ -128,7 +128,10 @@ describe.each(databases)('transactions on $name', (database) => {
       })
       .catch(() => undefined);
 
-    expect(queryRunners.unreleasedCount()).toBe(0);
+    expect({
+      unreleased: queryRunners.unreleasedCount(),
+      releasedInsideTransaction: queryRunners.releasedInsideTransaction(),
+    }).toEqual({ unreleased: 0, releasedInsideTransaction: false });
   });
 
   it('rejects an unknown propagation without opening a transaction', async () => {

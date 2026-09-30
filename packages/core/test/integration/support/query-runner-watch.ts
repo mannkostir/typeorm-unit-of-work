@@ -3,10 +3,11 @@ import { vi } from 'vitest';
 
 export interface QueryRunnerWatch {
   unreleasedCount(): number;
+  releasedInsideTransaction(): boolean;
 }
 
 export function watchQueryRunners(dataSource: DataSource): QueryRunnerWatch {
-  const counts = { created: 0, released: 0 };
+  const counts = { created: 0, released: 0, releasedInsideTransaction: 0 };
   const wrapped = new WeakSet<object>();
   const createQueryRunner = dataSource.createQueryRunner.bind(dataSource);
   vi.spyOn(dataSource, 'createQueryRunner').mockImplementation((mode) => {
@@ -17,10 +18,16 @@ export function watchQueryRunners(dataSource: DataSource): QueryRunnerWatch {
       const release = queryRunner.release.bind(queryRunner);
       queryRunner.release = async () => {
         counts.released += 1;
+        if (queryRunner.isTransactionActive) {
+          counts.releasedInsideTransaction += 1;
+        }
         await release();
       };
     }
     return queryRunner;
   });
-  return { unreleasedCount: () => counts.created - counts.released };
+  return {
+    unreleasedCount: () => counts.created - counts.released,
+    releasedInsideTransaction: () => counts.releasedInsideTransaction > 0,
+  };
 }

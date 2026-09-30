@@ -178,6 +178,9 @@ describe.each(databases)('nested savepoints on $name', (database) => {
       await failNested(() => place('o-1'));
     });
 
-    expect(queryRunners.unreleasedCount()).toBe(0);
+    expect({
+      unreleased: queryRunners.unreleasedCount(),
+      releasedInsideTransaction: queryRunners.releasedInsideTransaction(),
+    }).toEqual({ unreleased: 0, releasedInsideTransaction: false });
   });
 });

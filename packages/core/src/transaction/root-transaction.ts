@@ -1,4 +1,4 @@
-import type { DataSource } from 'typeorm';
+import type { DataSource, QueryRunner } from 'typeorm';
 import { ConnectionAlreadyInTransactionError } from '../errors/unit-of-work-errors';
 import type { AfterCommitErrorHandler, DomainEventPublisher } from '../events/domain-event-publisher';
 import { drainBeforeCommit } from '../events/drain-before-commit';
@@ -49,6 +49,7 @@ export class RootTransaction {
         return this.#settle(scope, work, options);
       });
     } finally {
+      await rollBackLeftoverTransaction(queryRunner);
       await queryRunner.release();
     }
   }
@@ -59,7 +60,8 @@ export class RootTransaction {
     options: ResolvedRunOptions<Result>,
   ): Promise<Settlement<Result>> {
     const result = await abortOnFailure(scope, () => this.dependencies.store.runIn(scope, () => work(scope.context)));
-    if (!options.commitWhen(result)) {
+    const accepted = await abortOnFailure(scope, async () => options.commitWhen(result));
+    if (!accepted) {
       await abortScope(scope, undefined);
       return { result, committedEvents: [] };
     }
@@ -76,3 +78,12 @@ export class RootTransaction {
     return events;
   }
 }
+
+async function rollBackLeftoverTransaction(queryRunner: QueryRunner): Promise<void> {
+  if (!queryRunner.isTransactionActive) {
+    return;
+  }
+  await queryRunner.rollbackTransaction().catch(keepOriginalError);
+}
+
+function keepOriginalError(): void {}

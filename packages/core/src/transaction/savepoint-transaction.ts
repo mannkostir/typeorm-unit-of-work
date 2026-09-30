@@ -31,7 +31,8 @@ export class SavepointTransaction {
     options: ResolvedRunOptions<Result>,
   ): Promise<Result> {
     const result = await abortOnFailure(child, () => this.store.runIn(child, () => work(child.context)));
-    if (!options.commitWhen(result)) {
+    const accepted = await abortOnFailure(child, async () => options.commitWhen(result));
+    if (!accepted) {
       await abortScope(child, undefined);
       return result;
     }

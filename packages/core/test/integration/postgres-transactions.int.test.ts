@@ -88,7 +88,10 @@ describe('transactions on postgres only', () => {
       await uow.run(async () => undefined, { propagation: 'new' });
     });
 
-    expect(queryRunners.unreleasedCount()).toBe(0);
+    expect({
+      unreleased: queryRunners.unreleasedCount(),
+      releasedInsideTransaction: queryRunners.releasedInsideTransaction(),
+    }).toEqual({ unreleased: 0, releasedInsideTransaction: false });
   });
 
   it('leaves no connection idle in a transaction when starting the transaction fails', async () => {
