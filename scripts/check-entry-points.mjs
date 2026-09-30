@@ -6,6 +6,7 @@ const require = createRequire(import.meta.url);
 
 const packages = [
   { name: 'typeorm-unit-of-work', exportName: 'UnitOfWork', distDirectory: 'packages/core/dist', forbiddenImport: 'typeorm' },
+  { name: 'typeorm-unit-of-work-nestjs', exportName: 'UnitOfWorkModule', distDirectory: 'packages/nestjs/dist', forbiddenImport: undefined },
 ];
 
 for (const { name, exportName, distDirectory, forbiddenImport } of packages) {
