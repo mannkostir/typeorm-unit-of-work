@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  ConcurrentSavepointError,
   ConnectionAlreadyInTransactionError,
   DataSourceNotInitializedError,
   EventCascadeLimitExceededError,
@@ -50,6 +51,12 @@ describe('unit of work errors', () => {
   it('explains why a shared connection cannot open an independent transaction', () => {
     expect(new ConnectionAlreadyInTransactionError('better-sqlite3').message).toBe(
       'The better-sqlite3 driver returned a query runner that is already inside a transaction. It shares one connection, so propagation "new" and concurrent units of work are not supported on it; use "join" or "nested".',
+    );
+  });
+
+  it('tells the caller to await nested runs one after another', () => {
+    expect(new ConcurrentSavepointError().message).toBe(
+      'A nested run started while another nested run on the same transaction was still open. Savepoints on one transaction cannot overlap; await nested runs sequentially instead of running them concurrently.',
     );
   });
 });

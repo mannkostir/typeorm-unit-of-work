@@ -16,6 +16,14 @@ export class SavepointTransaction {
     work: TransactionalWork<Result>,
     options: ResolvedRunOptions<Result>,
   ): Promise<Result> {
+    return parent.withChildSavepoint(() => this.#open(parent, work, options));
+  }
+
+  #open<Result>(
+    parent: TransactionScope,
+    work: TransactionalWork<Result>,
+    options: ResolvedRunOptions<Result>,
+  ): Promise<Result> {
     const child = new TransactionScope(parent.queryRunner, parent);
     parent.holdPendingEventsAlongAncestry();
     return this.registry.withBinding(parent.queryRunner, child, async () => {

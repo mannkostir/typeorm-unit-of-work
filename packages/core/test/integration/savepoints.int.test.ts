@@ -1,5 +1,6 @@
 import { type DataSource, QueryFailedError } from 'typeorm';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { ConcurrentSavepointError } from '../../src/errors/unit-of-work-errors';
 import { InProcessEventPublisher } from '../../src/events/in-process-event-publisher';
 import { UnitOfWork } from '../../src/unit-of-work';
 import { databases } from './support/databases';
@@ -16,6 +17,8 @@ describe.each(databases)('nested savepoints on $name', (database) => {
     (await dataSource.getRepository(Order).find({ order: { id: 'ASC' } })).map((order) => order.id);
 
   const place = (id: string) => uow.getRepository(Order).save(Order.place(id));
+
+  const placeNested = (id: string) => uow.run(() => place(id), { propagation: 'nested' });
 
   const failNested = (work: () => Promise<unknown>) =>
     expect(
@@ -171,6 +174,40 @@ describe.each(databases)('nested savepoints on $name', (database) => {
     });
 
     expect(published).toEqual([new OrderPlaced('o-1'), new OrderShipped('o-1')]);
+  });
+
+  it('rejects a second savepoint opened concurrently on the same parent', async () => {
+    const outcomes = await uow.run(() => Promise.allSettled([placeNested('o-1'), placeNested('o-2')]));
+
+    expect(outcomes[1]).toEqual({ status: 'rejected', reason: expect.any(ConcurrentSavepointError) });
+  });
+
+  it('keeps the first concurrent savepoint and the outer work after rejecting the second', async () => {
+    await uow.run(async () => {
+      await Promise.allSettled([placeNested('o-1'), placeNested('o-2')]);
+      await place('o-3');
+    });
+
+    expect({
+      stored: await storedIds(),
+      published,
+      releasedInsideTransaction: queryRunners.releasedInsideTransaction(),
+    }).toEqual({
+      stored: ['o-1', 'o-3'],
+      published: [new OrderPlaced('o-1'), new OrderPlaced('o-3')],
+      releasedInsideTransaction: false,
+    });
+  });
+
+  it('opens sibling savepoints one after another after earlier ones fail or are rejected', async () => {
+    await uow.run(async () => {
+      await failNested(() => place('o-1'));
+      await uow.run(() => place('o-2'), { propagation: 'nested', commitWhen: () => false });
+      await placeNested('o-3');
+      await placeNested('o-4');
+    });
+
+    expect(await storedIds()).toEqual(['o-3', 'o-4']);
   });
 
   it('releases every query runner', async () => {

@@ -55,3 +55,11 @@ export class ConnectionAlreadyInTransactionError extends UnitOfWorkError {
     );
   }
 }
+
+export class ConcurrentSavepointError extends UnitOfWorkError {
+  constructor() {
+    super(
+      'A nested run started while another nested run on the same transaction was still open. Savepoints on one transaction cannot overlap; await nested runs sequentially instead of running them concurrently.',
+    );
+  }
+}
