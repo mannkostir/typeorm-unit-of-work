@@ -16,8 +16,8 @@ export class SavepointTransaction {
     work: TransactionalWork<Result>,
     options: ResolvedRunOptions<Result>,
   ): Promise<Result> {
-    const child = new TransactionScope(parent.queryRunner);
-    parent.aggregates.holdPendingEvents();
+    const child = new TransactionScope(parent.queryRunner, parent);
+    parent.holdPendingEventsAlongAncestry();
     return this.registry.withBinding(parent.queryRunner, child, async () => {
       await parent.queryRunner.startTransaction();
       return this.#settle(parent, child, work, options);

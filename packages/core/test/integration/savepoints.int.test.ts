@@ -1,4 +1,4 @@
-import type { DataSource } from 'typeorm';
+import { type DataSource, QueryFailedError } from 'typeorm';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { InProcessEventPublisher } from '../../src/events/in-process-event-publisher';
 import { UnitOfWork } from '../../src/unit-of-work';
@@ -18,15 +18,15 @@ describe.each(databases)('nested savepoints on $name', (database) => {
   const place = (id: string) => uow.getRepository(Order).save(Order.place(id));
 
   const failNested = (work: () => Promise<unknown>) =>
-    uow
-      .run(
+    expect(
+      uow.run(
         async () => {
           await work();
           throw new Error('nested failed');
         },
         { propagation: 'nested' },
-      )
-      .catch(() => undefined);
+      ),
+    ).rejects.toThrow('nested failed');
 
   beforeEach(async () => {
     dataSource = await database.open();
@@ -92,9 +92,9 @@ describe.each(databases)('nested savepoints on $name', (database) => {
   it('recovers the outer transaction after a failed statement inside the savepoint', async () => {
     await uow.run(async () => {
       await place('o-1');
-      await uow
-        .run(() => uow.getRepository(Order).insert({ id: 'o-1', status: 'duplicate' }), { propagation: 'nested' })
-        .catch(() => undefined);
+      await expect(
+        uow.run(() => uow.getRepository(Order).insert({ id: 'o-1', status: 'duplicate' }), { propagation: 'nested' }),
+      ).rejects.toThrow(QueryFailedError);
       await place('o-2');
     });
 
@@ -146,6 +146,31 @@ describe.each(databases)('nested savepoints on $name', (database) => {
     });
 
     expect(published).toEqual([new OrderPlaced('o-2')]);
+  });
+
+  it('sees uncommitted outer work from inside the savepoint', async () => {
+    const visible = await uow.run(async () => {
+      await place('o-1');
+      return uow.run(() => uow.getRepository(Order).countBy({ id: 'o-1' }), { propagation: 'nested' });
+    });
+
+    expect(visible).toBe(1);
+  });
+
+  it('keeps an event raised in a middle savepoint when an inner savepoint saving the aggregate rolls back', async () => {
+    await uow.run(async () => {
+      const order = Order.place('o-1');
+      await uow.getRepository(Order).save(order);
+      await uow.run(
+        async () => {
+          order.ship();
+          await failNested(() => uow.getRepository(Order).save(order));
+        },
+        { propagation: 'nested' },
+      );
+    });
+
+    expect(published).toEqual([new OrderPlaced('o-1'), new OrderShipped('o-1')]);
   });
 
   it('releases every query runner', async () => {
