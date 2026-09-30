@@ -1,0 +1,106 @@
+name: publish
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: publish-${{ github.event.release.tag_name }}
+  cancel-in-progress: false
+
+jobs:
+  guard:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      dist-tag: ${{ steps.guard.outputs.dist-tag }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          package-manager-cache: false
+      - id: guard
+        env:
+          TAG: ${{ github.event.release.tag_name }}
+          PRERELEASE: ${{ github.event.release.prerelease }}
+        run: |
+          set -euo pipefail
+          core_version=$(node -p "require('./packages/core/package.json').version")
+          adapter_version=$(node -p "require('./packages/nestjs/package.json').version")
+          adapter_peer=$(node -p "require('./packages/nestjs/package.json').peerDependencies['typeorm-unit-of-work']")
+          if [ "$core_version" != "$adapter_version" ] || [ "$adapter_peer" != "$core_version" ]; then
+            echo "::error::Core $core_version, adapter $adapter_version and the adapter's core peer $adapter_peer must be the same version. Fix the prepare commit, delete this Release, and publish a new one."
+            exit 1
+          fi
+          if [ "$TAG" != "v$core_version" ]; then
+            echo "::error::Release tag $TAG does not match package version $core_version. The Release tag must be v$core_version on the commit that carries that version. Delete this Release and publish a new one."
+            exit 1
+          fi
+          if ! git merge-base --is-ancestor HEAD origin/main; then
+            echo "::error::Release tag $TAG points at a commit that is not on main. Merge the version bump to main, tag that commit, delete this Release, and publish a new one."
+            exit 1
+          fi
+          core=${core_version%%+*}
+          if [[ "$core" == *-* ]]; then
+            expected_prerelease=true
+            dist_tag=next
+          else
+            expected_prerelease=false
+            dist_tag=latest
+          fi
+          if [ "$PRERELEASE" != "$expected_prerelease" ]; then
+            echo "::error::Version $core_version needs the Release's pre-release box set to $expected_prerelease, but it is $PRERELEASE. Delete this Release and publish a new one from tag $TAG with the pre-release box set to $expected_prerelease."
+            exit 1
+          fi
+          for name in typeorm-unit-of-work typeorm-unit-of-work-nestjs; do
+            if npm view "$name@$core_version" version >"$RUNNER_TEMP/npm-view.out" 2>"$RUNNER_TEMP/npm-view.err"; then
+              if [ -s "$RUNNER_TEMP/npm-view.out" ]; then
+                echo "::error::$name@$core_version is already published. Bump the version in both packages."
+                exit 1
+              fi
+            elif ! grep -q E404 "$RUNNER_TEMP/npm-view.err"; then
+              echo "::error::Could not check whether $name@$core_version is already published."
+              cat "$RUNNER_TEMP/npm-view.err"
+              exit 1
+            fi
+          done
+          echo "dist-tag=$dist_tag" >> "$GITHUB_OUTPUT"
+
+  ci:
+    needs: guard
+    uses: ./.github/workflows/ci.yml
+
+  stage:
+    needs: [guard, ci]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+          package-manager-cache: false
+      - run: npm install -g npm@11.20.0
+      - run: npm ci --ignore-scripts
+      - run: npm run build
+      - env:
+          DIST_TAG: ${{ needs.guard.outputs.dist-tag }}
+        run: |
+          set -euo pipefail
+          for workspace in packages/core packages/nestjs; do
+            if [ "$DIST_TAG" = next ]; then
+              npm stage publish --workspace "$workspace" --ignore-scripts --loglevel verbose --tag next
+            else
+              npm stage publish --workspace "$workspace" --ignore-scripts --loglevel verbose
+            fi
+          done
