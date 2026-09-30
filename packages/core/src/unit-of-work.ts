@@ -4,8 +4,8 @@ import type { DomainEventSource } from './events/domain-event-source';
 import { JoinPropagation } from './propagation/join-propagation';
 import { NewPropagation } from './propagation/new-propagation';
 import type { PropagationStrategy, TransactionalWork } from './propagation/propagation-strategy';
-import { ScopeRegistry } from './scope/scope-registry';
 import { ScopeStore } from './scope/scope-store';
+import { eventCollectionFor } from './subscriber/event-collection';
 import { RootTransaction } from './transaction/root-transaction';
 import {
   type Propagation,
@@ -26,7 +26,7 @@ export class UnitOfWork {
     const root = new RootTransaction({
       dataSource: this.settings.dataSource,
       store: this.store,
-      registry: new ScopeRegistry(),
+      registry: eventCollectionFor(this.settings.dataSource),
       publisher: this.settings.publisher,
       onAfterCommitError: this.settings.onAfterCommitError,
       maxEventRounds: this.settings.maxEventRounds,
