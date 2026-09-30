@@ -39,6 +39,9 @@ const propagations: readonly Propagation[] = ['join', 'new', 'nested'];
 const defaultMaxEventRounds = 100;
 
 export function resolveUnitOfWorkOptions(options: UnitOfWorkOptions): ResolvedUnitOfWorkOptions {
+  if (!isDataSource(options.dataSource)) {
+    throw new InvalidUnitOfWorkOptionsError('dataSource', 'must be a TypeORM DataSource');
+  }
   if (!options.dataSource.isInitialized) {
     throw new DataSourceNotInitializedError();
   }
@@ -78,6 +81,12 @@ export function resolveRunOptions<Result>(options: RunOptions<Result> = {}): Res
 
 function commitEveryResult(): boolean {
   return true;
+}
+
+function isDataSource(value: unknown): value is DataSource {
+  return (
+    typeof value === 'object' && value !== null && 'isInitialized' in value && typeof value.isInitialized === 'boolean'
+  );
 }
 
 function isDomainEventPublisher(value: unknown): value is DomainEventPublisher {

@@ -29,6 +29,17 @@ describe('resolveUnitOfWorkOptions', () => {
     await dataSource.destroy();
   });
 
+  it.each([
+    ['missing', undefined],
+    ['without isInitialized', {}],
+  ])('rejects a dataSource that is %s', (_, dataSource) => {
+    const options = { ...valid, dataSource } as unknown as UnitOfWorkOptions;
+
+    expect(() => resolveUnitOfWorkOptions(options)).toThrow(
+      new InvalidUnitOfWorkOptionsError('dataSource', 'must be a TypeORM DataSource'),
+    );
+  });
+
   it('rejects a DataSource that is not initialized', () => {
     expect(() => resolveUnitOfWorkOptions({ ...valid, dataSource: unusedDataSource })).toThrow(
       DataSourceNotInitializedError,
