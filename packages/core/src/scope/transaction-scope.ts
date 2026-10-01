@@ -7,12 +7,13 @@ import {
 import { type TransactionContext, transactionContextOf } from '../transaction-context';
 import { AggregateTracker } from './aggregate-tracker';
 
-type ScopePhase = 'accepting-work' | 'committing' | 'ended';
+type ScopePhase = 'accepting-work' | 'settling' | 'ended';
 
 export class TransactionScope {
   readonly context: TransactionContext;
   readonly aggregates = new AggregateTracker();
   #childSavepointOpen = false;
+  #childSavepointStart: Promise<unknown> = Promise.resolve();
   #phase: ScopePhase = 'accepting-work';
 
   constructor(
@@ -40,20 +41,36 @@ export class TransactionScope {
     }
   }
 
+  startChildSavepoint(): Promise<void> {
+    const start = this.queryRunner.startTransaction();
+    this.#childSavepointStart = Promise.allSettled([start]);
+    return start;
+  }
+
+  async awaitChildSavepointStart(): Promise<void> {
+    await this.#childSavepointStart;
+  }
+
   beginCommit(): void {
     this.ensureOpen('uow.run()');
     if (this.#childSavepointOpen) {
       throw new OpenSavepointAtCommitError();
     }
-    this.#phase = 'committing';
+    this.stopAcceptingWork();
+  }
+
+  stopAcceptingWork(): void {
+    if (this.#phase === 'accepting-work') {
+      this.#phase = 'settling';
+    }
   }
 
   close(): void {
     this.#phase = 'ended';
   }
 
-  hasEnded(): boolean {
-    return this.#phase === 'ended' || (this.parent?.hasEnded() ?? false);
+  controlsItsTransaction(): boolean {
+    return this.#phase !== 'ended' && (this.parent === undefined || this.parent.#acceptsWork());
   }
 
   ensureOpen(operation: string): void {

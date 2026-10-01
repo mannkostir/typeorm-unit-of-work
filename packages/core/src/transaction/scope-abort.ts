@@ -2,8 +2,10 @@ import { TransactionRollbackError } from '../errors/unit-of-work-errors';
 import type { TransactionScope } from '../scope/transaction-scope';
 
 export async function abortScope(scope: TransactionScope, originalError: unknown): Promise<void> {
+  scope.stopAcceptingWork();
   scope.aggregates.discardPendingEvents();
-  if (scope.hasEnded() || !scope.queryRunner.isTransactionActive) {
+  await scope.awaitChildSavepointStart();
+  if (!scope.controlsItsTransaction() || !scope.queryRunner.isTransactionActive) {
     return;
   }
   try {

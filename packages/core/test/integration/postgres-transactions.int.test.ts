@@ -133,7 +133,7 @@ describe('transactions on postgres only', () => {
     expect(await idleInTransactionCount()).toBe(0);
   });
 
-  it('leaves no connection idle in a transaction after refusing to commit with a nested run still open', async () => {
+  it('refuses to commit with a nested run still open without leaving a connection idle in a transaction', async () => {
     const gate = closedGate();
     const started = closedGate();
     const danglingRuns: Promise<unknown>[] = [];
@@ -163,7 +163,7 @@ describe('transactions on postgres only', () => {
     });
   });
 
-  it('leaves no connection idle in a transaction after refusing a nested run started while the root commits', async () => {
+  it('refuses a nested run started while the root commits without leaving a connection idle in a transaction', async () => {
     const gate = closedGate();
     const danglingRuns: Promise<unknown>[] = [];
     dataSource.subscribers.push({ beforeTransactionCommit: () => gate.open() });
@@ -173,6 +173,31 @@ describe('transactions on postgres only', () => {
         gate.opened.then(() => uow.run(async () => undefined, { propagation: 'nested' })).catch((error: unknown) => error),
       );
     });
+    const [dangling] = await Promise.all(danglingRuns);
+    dataSource.subscribers.pop();
+    await uow.run(async () => undefined);
+
+    expect({ refused: dangling instanceof ScopeNotActiveError, idle: await idleInTransactionCount() }).toEqual({
+      refused: true,
+      idle: 0,
+    });
+  });
+
+  it('refuses a nested run started while a failed root rolls back without leaving a connection idle in a transaction', async () => {
+    const gate = closedGate();
+    const danglingRuns: Promise<unknown>[] = [];
+    dataSource.subscribers.push({ beforeTransactionRollback: () => gate.open() });
+
+    await uow
+      .run(async () => {
+        danglingRuns.push(
+          gate.opened
+            .then(() => uow.run(async () => undefined, { propagation: 'nested' }))
+            .catch((error: unknown) => error),
+        );
+        throw new Error('work failed');
+      })
+      .catch(() => undefined);
     const [dangling] = await Promise.all(danglingRuns);
     dataSource.subscribers.pop();
     await uow.run(async () => undefined);

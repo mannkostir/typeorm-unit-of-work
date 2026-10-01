@@ -60,18 +60,40 @@ describe.each(databases)('nested savepoints on $name', (database) => {
     return Promise.all(danglingRuns);
   };
 
+  const startNestedRunOnGate = (gate: Gate): void => {
+    danglingRuns.push(
+      gate.opened.then(() => uow.run(() => place('o-2'), { propagation: 'nested' })).catch((error: unknown) => error),
+    );
+  };
+
   const rootStartingNestedRunOnGate = (gate: Gate) =>
     uow.run(async () => {
       await place('o-1');
-      danglingRuns.push(
-        gate.opened
-          .then(() => uow.run(() => place('o-2'), { propagation: 'nested' }))
-          .catch((error: unknown) => error),
-      );
+      startNestedRunOnGate(gate);
       return 'ok';
     });
 
-  const openingOn = (hook: 'beforeTransactionCommit' | 'afterTransactionCommit', gate: Gate) => ({
+  const failingRootStartingNestedRunOnGate = (gate: Gate, failure: Error) =>
+    uow.run(async () => {
+      await place('o-1');
+      startNestedRunOnGate(gate);
+      throw failure;
+    });
+
+  const rejectedRootStartingNestedRunOnGate = (gate: Gate) =>
+    uow.run(
+      async () => {
+        await place('o-1');
+        startNestedRunOnGate(gate);
+        return 'rejected';
+      },
+      { commitWhen: () => false },
+    );
+
+  const openingOn = (
+    hook: 'beforeTransactionCommit' | 'afterTransactionCommit' | 'beforeTransactionRollback',
+    gate: Gate,
+  ) => ({
     [hook]: () => gate.open(),
   });
 
@@ -421,5 +443,62 @@ describe.each(databases)('nested savepoints on $name', (database) => {
       stored: await storedIds(),
       published,
     }).toEqual({ result: 'ok', danglingRefused: true, stored: ['o-1'], published: [new OrderPlaced('o-1')] });
+  });
+
+  it('refuses a nested run started while a failed root rolls back and rethrows the failure', async () => {
+    const gate = closedGate();
+    const failure = new Error('work failed');
+    dataSource.subscribers.push(openingOn('beforeTransactionRollback', gate));
+
+    const outcome = await failingRootStartingNestedRunOnGate(gate, failure).catch((error: unknown) => error);
+    const [dangling] = await settleDanglingRuns(gate);
+    dataSource.subscribers.pop();
+    await uow.run(() => place('o-3'));
+
+    expect({
+      rethrown: outcome === failure,
+      danglingRefused: dangling instanceof ScopeNotActiveError,
+      stored: await storedIds(),
+      releasedInsideTransaction: queryRunners.releasedInsideTransaction(),
+    }).toEqual({ rethrown: true, danglingRefused: true, stored: ['o-3'], releasedInsideTransaction: false });
+  });
+
+  it('refuses a nested run started while a root rejected by commitWhen rolls back and returns its result', async () => {
+    const gate = closedGate();
+    dataSource.subscribers.push(openingOn('beforeTransactionRollback', gate));
+
+    const result = await rejectedRootStartingNestedRunOnGate(gate).catch((error: unknown) => error);
+    const [dangling] = await settleDanglingRuns(gate);
+    dataSource.subscribers.pop();
+    await uow.run(() => place('o-3'));
+
+    expect({
+      result,
+      danglingRefused: dangling instanceof ScopeNotActiveError,
+      stored: await storedIds(),
+      releasedInsideTransaction: queryRunners.releasedInsideTransaction(),
+    }).toEqual({ result: 'rejected', danglingRefused: true, stored: ['o-3'], releasedInsideTransaction: false });
+  });
+
+  it('waits for a nested run that is still opening before rolling back a failed root', async () => {
+    const failure = new Error('work failed');
+    const danglingStarts: Promise<unknown>[] = [];
+
+    const outcome = await uow
+      .run(async () => {
+        await place('o-1');
+        danglingStarts.push(uow.run(() => place('o-2'), { propagation: 'nested' }).catch((error: unknown) => error));
+        throw failure;
+      })
+      .catch((error: unknown) => error);
+    const [dangling] = await Promise.all(danglingStarts);
+    await uow.run(() => place('o-3'));
+
+    expect({
+      rethrown: outcome === failure,
+      danglingRefused: dangling instanceof ScopeNotActiveError,
+      stored: await storedIds(),
+      releasedInsideTransaction: queryRunners.releasedInsideTransaction(),
+    }).toEqual({ rethrown: true, danglingRefused: true, stored: ['o-3'], releasedInsideTransaction: false });
   });
 });

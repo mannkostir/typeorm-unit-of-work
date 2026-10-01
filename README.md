@@ -101,7 +101,9 @@ Savepoints on one transaction cannot overlap. Await `'nested'` runs one after an
 
 Await every nested `uow.run()` before the enclosing work returns: a root or savepoint that would commit while a `'nested'` run inside it is still open rolls back instead and rejects with `OpenSavepointAtCommitError`.
 
-A scope stops accepting work once it starts committing, and ends when its transaction or savepoint finishes. A promise started inside `work` and left running afterwards cannot use it: `uow.manager`, `uow.getRepository()` and `uow.track()` called from it throw `ScopeNotActiveError`, and `uow.run()` with any propagation rejects with it.
+A scope stops accepting work once it starts committing or rolling back, and ends when its transaction or savepoint finishes. A promise started inside `work` and left running afterwards cannot use it: `uow.manager`, `uow.getRepository()` and `uow.track()` called from it throw `ScopeNotActiveError`, and `uow.run()` with any propagation rejects with it.
+
+TypeORM's own transaction subscribers (`beforeTransactionCommit`, `afterTransactionCommit`, `beforeTransactionRollback`, `afterTransactionRollback`) do not run inside the scope that is committing or rolling back. There `uow.manager`, `uow.getRepository()`, `uow.track()` and `uow.run()` act on the enclosing scope of a `'nested'` run, or, around a root transaction, on no scope at all: `dataSource.manager`, or `ScopeNotActiveError` when `strict` is on. Use `event.manager` inside those subscribers, or register a before-commit handler on the publisher for work that belongs in the commit.
 
 SQLite limitation: SQLite shares one connection, so every query runner is the same object. `propagation: 'new'` inside a scope throws `ConnectionAlreadyInTransactionError`, and concurrent units of work are not supported on SQLite. Use `'join'` or `'nested'`.
 
@@ -137,7 +139,7 @@ Every error extends `UnitOfWorkError`.
 |---|---|
 | `TransactionRollbackError` | The rollback itself failed. Carries `originalError` and `rollbackError`; `originalError` is `undefined` when the rollback was caused by `commitWhen` returning `false`. If the final rollback before the connection is released fails as well, `run()` rejects with another `TransactionRollbackError` whose `originalError` is the error that was propagating; the connection is still released, because TypeORM's public `QueryRunner.release()` cannot discard it. |
 | `EventCascadeLimitExceededError` | Before-commit handlers were still raising events after `maxEventRounds` rounds. Carries `rounds` and `lastRoundEventNames`. The transaction rolls back. |
-| `ScopeNotActiveError` | `track()` is called outside a scope, or `manager` or `getRepository()` is used outside a scope when `strict` is on, or any of `manager`, `getRepository()`, `track()` and `run()` is called from a scope that has already finished. |
+| `ScopeNotActiveError` | `track()` is called outside a scope, or `manager` or `getRepository()` is used outside a scope when `strict` is on, or any of `manager`, `getRepository()`, `track()` and `run()` is called from a scope that is committing, rolling back or already finished. |
 | `DataSourceNotInitializedError` | The `UnitOfWork` constructor receives a `DataSource` that is not initialized. |
 | `InvalidUnitOfWorkOptionsError` | Constructor or `run()` options are invalid, including a missing `dataSource`. Carries `option`. |
 | `ConnectionAlreadyInTransactionError` | A root scope is requested on a driver whose query runner is already inside a transaction, as on SQLite. |
