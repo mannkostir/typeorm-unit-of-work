@@ -1,4 +1,4 @@
-import type { DataSource, QueryRunner } from 'typeorm';
+import type { DataSource } from 'typeorm';
 import { ConnectionAlreadyInTransactionError } from '../errors/unit-of-work-errors';
 import type { AfterCommitErrorHandler, DomainEventPublisher } from '../events/domain-event-publisher';
 import { drainBeforeCommit } from '../events/drain-before-commit';
@@ -7,6 +7,7 @@ import type { ScopeRegistry } from '../scope/scope-registry';
 import type { ScopeStore } from '../scope/scope-store';
 import { TransactionScope } from '../scope/transaction-scope';
 import type { ResolvedRunOptions } from '../unit-of-work-options';
+import { releaseAbandoned, releaseSettled } from './query-runner-release';
 import { abortOnFailure, abortScope } from './scope-abort';
 
 export interface RootTransactionDependencies {
@@ -37,21 +38,31 @@ export class RootTransaction {
     work: TransactionalWork<Result>,
     options: ResolvedRunOptions<Result>,
   ): Promise<Settlement<Result>> {
-    const { dataSource, registry } = this.dependencies;
+    const { dataSource } = this.dependencies;
     const queryRunner = dataSource.createQueryRunner();
     if (queryRunner.isTransactionActive) {
       throw new ConnectionAlreadyInTransactionError(dataSource.options.type);
     }
     const scope = new TransactionScope(queryRunner);
+    const settlement = await this.#settleThenClose(scope, work, options).catch((failure: unknown) =>
+      releaseAbandoned(queryRunner, failure),
+    );
+    await releaseSettled(queryRunner);
+    return settlement;
+  }
+
+  async #settleThenClose<Result>(
+    scope: TransactionScope,
+    work: TransactionalWork<Result>,
+    options: ResolvedRunOptions<Result>,
+  ): Promise<Settlement<Result>> {
     try {
-      return await registry.withBinding(queryRunner, scope, async () => {
-        await abortOnFailure(scope, () => queryRunner.startTransaction(options.isolationLevel));
+      return await this.dependencies.registry.withBinding(scope.queryRunner, scope, async () => {
+        await abortOnFailure(scope, () => scope.queryRunner.startTransaction(options.isolationLevel));
         return this.#settle(scope, work, options);
       });
     } finally {
       scope.close();
-      await rollBackLeftoverTransaction(queryRunner);
-      await queryRunner.release();
     }
   }
 
@@ -75,16 +86,8 @@ export class RootTransaction {
     const events = await store.runIn(scope, () =>
       drainBeforeCommit(scope.aggregates, (batch) => publisher.beforeCommit(batch, scope.context), maxEventRounds),
     );
+    scope.ensureNoOpenChildSavepoint();
     await scope.queryRunner.commitTransaction();
     return events;
   }
 }
-
-async function rollBackLeftoverTransaction(queryRunner: QueryRunner): Promise<void> {
-  if (!queryRunner.isTransactionActive) {
-    return;
-  }
-  await queryRunner.rollbackTransaction().catch(keepOriginalError);
-}
-
-function keepOriginalError(): void {}

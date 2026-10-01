@@ -1,9 +1,11 @@
 import { setTimeout } from 'node:timers/promises';
 import { type DataSource, type EntityManager, QueryFailedError, type QueryRunner } from 'typeorm';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { OpenSavepointAtCommitError } from '../../src/errors/unit-of-work-errors';
 import { InProcessEventPublisher } from '../../src/events/in-process-event-publisher';
 import { UnitOfWork } from '../../src/unit-of-work';
 import { postgres } from './support/databases';
+import { closedGate } from './support/gate';
 import { Order, OrderPlaced } from './support/model';
 import { type QueryRunnerWatch, watchQueryRunners } from './support/query-runner-watch';
 
@@ -27,6 +29,17 @@ describe('transactions on postgres only', () => {
   afterEach(async () => {
     await dataSource.destroy();
   });
+
+  const idleInTransactionCount = async (): Promise<number> => {
+    const [first, second] = [dataSource.createQueryRunner(), dataSource.createQueryRunner()];
+    const idleInTransaction = (queryRunner: QueryRunner) =>
+      queryRunner.query(
+        "select count(*)::int as count from pg_stat_activity where datname = current_database() and state = 'idle in transaction'",
+      );
+    const counts: readonly { count: number }[][] = await Promise.all([idleInTransaction(first), idleInTransaction(second)]);
+    await Promise.all([first.release(), second.release()]);
+    return Math.max(...counts.map((rows) => rows[0]?.count ?? 0));
+  };
 
   it('commits a new transaction even when the outer one rolls back', async () => {
     const running = uow.run(async () => {
@@ -117,15 +130,37 @@ describe('transactions on postgres only', () => {
     await expect(running).rejects.toThrow('subscriber failed');
     dataSource.subscribers.pop();
 
-    const [first, second] = [dataSource.createQueryRunner(), dataSource.createQueryRunner()];
-    const idleInTransaction = (queryRunner: QueryRunner) =>
-      queryRunner.query(
-        "select count(*)::int as count from pg_stat_activity where datname = current_database() and state = 'idle in transaction'",
-      );
-    const counts: readonly { count: number }[][] = await Promise.all([idleInTransaction(first), idleInTransaction(second)]);
-    await Promise.all([first.release(), second.release()]);
+    expect(await idleInTransactionCount()).toBe(0);
+  });
 
-    expect(Math.max(...counts.map((rows) => rows[0]?.count ?? 0))).toBe(0);
+  it('leaves no connection idle in a transaction after refusing to commit with a nested run still open', async () => {
+    const gate = closedGate();
+    const started = closedGate();
+    const danglingRuns: Promise<unknown>[] = [];
+
+    const outcome = await uow
+      .run(async () => {
+        danglingRuns.push(
+          uow
+            .run(
+              async () => {
+                started.open();
+                await gate.opened;
+              },
+              { propagation: 'nested' },
+            )
+            .catch((error: unknown) => error),
+        );
+        await started.opened;
+      })
+      .catch((error: unknown) => error);
+    gate.open();
+    await Promise.all(danglingRuns);
+
+    expect({ refused: outcome instanceof OpenSavepointAtCommitError, idle: await idleInTransactionCount() }).toEqual({
+      refused: true,
+      idle: 0,
+    });
   });
 
   it('runs after-commit handlers of a new transaction outside the outer one', async () => {

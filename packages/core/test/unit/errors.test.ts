@@ -5,7 +5,9 @@ import {
   DataSourceNotInitializedError,
   EventCascadeLimitExceededError,
   InvalidUnitOfWorkOptionsError,
+  OpenSavepointAtCommitError,
   ScopeNotActiveError,
+  TransactionLeftOpenError,
   TransactionRollbackError,
   UnitOfWorkError,
 } from '../../src/errors/unit-of-work-errors';
@@ -57,6 +59,18 @@ describe('unit of work errors', () => {
   it('tells the caller to await nested runs one after another', () => {
     expect(new ConcurrentSavepointError().message).toBe(
       'A nested run started while another nested run on the same transaction was still open. Savepoints on one transaction cannot overlap; await nested runs sequentially instead of running them concurrently.',
+    );
+  });
+
+  it('tells the caller to await every nested run before committing', () => {
+    expect(new OpenSavepointAtCommitError().message).toBe(
+      'The unit of work tried to commit while one of its nested runs was still open, so it was rolled back and nothing was stored. Await every nested uow.run() before the enclosing work returns.',
+    );
+  });
+
+  it('explains that a transaction still open after its commit was rolled back', () => {
+    expect(new TransactionLeftOpenError().message).toBe(
+      'The transaction was still open after the unit of work committed, so it was rolled back and nothing was stored. This happens when a nested uow.run() failed with OpenSavepointAtCommitError and the error was caught; await every nested uow.run() before the enclosing work returns.',
     );
   });
 });

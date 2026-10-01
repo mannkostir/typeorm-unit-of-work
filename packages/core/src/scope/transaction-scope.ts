@@ -1,5 +1,9 @@
 import type { QueryRunner } from 'typeorm';
-import { ConcurrentSavepointError, ScopeNotActiveError } from '../errors/unit-of-work-errors';
+import {
+  ConcurrentSavepointError,
+  OpenSavepointAtCommitError,
+  ScopeNotActiveError,
+} from '../errors/unit-of-work-errors';
 import { type TransactionContext, transactionContextOf } from '../transaction-context';
 import { AggregateTracker } from './aggregate-tracker';
 
@@ -33,12 +37,22 @@ export class TransactionScope {
     }
   }
 
+  ensureNoOpenChildSavepoint(): void {
+    if (this.#childSavepointOpen) {
+      throw new OpenSavepointAtCommitError();
+    }
+  }
+
   close(): void {
     this.#closed = true;
   }
 
+  isOpen(): boolean {
+    return !this.#closed && (this.parent?.isOpen() ?? true);
+  }
+
   ensureOpen(operation: string): void {
-    if (this.#closed) {
+    if (!this.isOpen()) {
       throw new ScopeNotActiveError(operation);
     }
   }

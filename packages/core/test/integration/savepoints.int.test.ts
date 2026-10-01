@@ -1,9 +1,14 @@
 import { type DataSource, QueryFailedError } from 'typeorm';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { ConcurrentSavepointError } from '../../src/errors/unit-of-work-errors';
+import {
+  ConcurrentSavepointError,
+  OpenSavepointAtCommitError,
+  TransactionLeftOpenError,
+} from '../../src/errors/unit-of-work-errors';
 import { InProcessEventPublisher } from '../../src/events/in-process-event-publisher';
 import { UnitOfWork } from '../../src/unit-of-work';
 import { databases } from './support/databases';
+import { closedGate, type Gate } from './support/gate';
 import { Order, OrderPlaced, OrderShipped } from './support/model';
 import { type QueryRunnerWatch, watchQueryRunners } from './support/query-runner-watch';
 
@@ -12,6 +17,7 @@ describe.each(databases)('nested savepoints on $name', (database) => {
   let queryRunners: QueryRunnerWatch;
   let published: object[];
   let uow: UnitOfWork;
+  let danglingRuns: Promise<unknown>[];
 
   const storedIds = async () =>
     (await dataSource.getRepository(Order).find({ order: { id: 'ASC' } })).map((order) => order.id);
@@ -31,7 +37,65 @@ describe.each(databases)('nested savepoints on $name', (database) => {
       ),
     ).rejects.toThrow('nested failed');
 
+  const leaveNestedOpen = async (gate: Gate, id: string): Promise<void> => {
+    const started = closedGate();
+    danglingRuns.push(
+      uow
+        .run(
+          async () => {
+            started.open();
+            await gate.opened;
+            await place(id);
+          },
+          { propagation: 'nested' },
+        )
+        .catch((error: unknown) => error),
+    );
+    await started.opened;
+  };
+
+  const settleDanglingRuns = async (gate: Gate): Promise<void> => {
+    gate.open();
+    await Promise.all(danglingRuns);
+  };
+
+  const rootReturningWithNestedOpen = (gate: Gate) =>
+    uow.run(async () => {
+      await place('o-1');
+      await leaveNestedOpen(gate, 'o-2');
+      return 'ok';
+    });
+
+  const nestedReturningWithNestedOpen = (gate: Gate) =>
+    uow.run(async () => {
+      await place('o-1');
+      await uow.run(
+        async () => {
+          await place('o-2');
+          await leaveNestedOpen(gate, 'o-3');
+          return 'ok';
+        },
+        { propagation: 'nested' },
+      );
+    });
+
+  const rootSwallowingOpenSavepointError = (gate: Gate) =>
+    uow.run(async () => {
+      await place('o-1');
+      await uow
+        .run(
+          async () => {
+            await place('o-2');
+            await leaveNestedOpen(gate, 'o-3');
+          },
+          { propagation: 'nested' },
+        )
+        .catch(() => undefined);
+      return 'ok';
+    });
+
   beforeEach(async () => {
+    danglingRuns = [];
     dataSource = await database.open();
     queryRunners = watchQueryRunners(dataSource);
     published = [];
@@ -219,5 +283,79 @@ describe.each(databases)('nested savepoints on $name', (database) => {
       unreleased: queryRunners.unreleasedCount(),
       releasedInsideTransaction: queryRunners.releasedInsideTransaction(),
     }).toEqual({ unreleased: 0, releasedInsideTransaction: false });
+  });
+
+  it('rejects a root run that returns while a nested run is still open', async () => {
+    const gate = closedGate();
+
+    const outcome = await rootReturningWithNestedOpen(gate).catch((error: unknown) => error);
+    await settleDanglingRuns(gate);
+
+    expect(outcome).toBeInstanceOf(OpenSavepointAtCommitError);
+  });
+
+  it('stores and publishes nothing from a root run that returns while a nested run is still open', async () => {
+    const gate = closedGate();
+
+    await rootReturningWithNestedOpen(gate).catch(() => undefined);
+    await settleDanglingRuns(gate);
+
+    expect({ stored: await storedIds(), published }).toEqual({ stored: [], published: [] });
+  });
+
+  it('rejects a nested run that returns while its own nested run is still open', async () => {
+    const gate = closedGate();
+
+    const outcome = await nestedReturningWithNestedOpen(gate).catch((error: unknown) => error);
+    await settleDanglingRuns(gate);
+
+    expect(outcome).toBeInstanceOf(OpenSavepointAtCommitError);
+  });
+
+  it('stores and publishes nothing when a nested run returns while its own nested run is still open', async () => {
+    const gate = closedGate();
+
+    await nestedReturningWithNestedOpen(gate).catch(() => undefined);
+    await settleDanglingRuns(gate);
+
+    expect({ stored: await storedIds(), published }).toEqual({ stored: [], published: [] });
+  });
+
+  it('rejects a root run that commits after swallowing the open savepoint error of a nested run', async () => {
+    const gate = closedGate();
+
+    const outcome = await rootSwallowingOpenSavepointError(gate).catch((error: unknown) => error);
+    await settleDanglingRuns(gate);
+
+    expect(outcome).toBeInstanceOf(TransactionLeftOpenError);
+  });
+
+  it('stores and publishes nothing from a root run that swallowed the open savepoint error of a nested run', async () => {
+    const gate = closedGate();
+
+    await rootSwallowingOpenSavepointError(gate).catch(() => undefined);
+    await settleDanglingRuns(gate);
+
+    expect({ stored: await storedIds(), published }).toEqual({ stored: [], published: [] });
+  });
+
+  it('runs later units of work normally after refusing to commit with a nested run still open', async () => {
+    const gate = closedGate();
+
+    const outcome = await rootReturningWithNestedOpen(gate).catch((error: unknown) => error);
+    await settleDanglingRuns(gate);
+    await uow.run(() => place('o-4'));
+
+    expect({
+      refused: outcome instanceof OpenSavepointAtCommitError,
+      stored: await storedIds(),
+      published,
+      releasedInsideTransaction: queryRunners.releasedInsideTransaction(),
+    }).toEqual({
+      refused: true,
+      stored: ['o-4'],
+      published: [new OrderPlaced('o-4')],
+      releasedInsideTransaction: false,
+    });
   });
 });

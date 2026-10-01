@@ -48,8 +48,14 @@ export class SavepointTransaction {
       await abortScope(child, undefined);
       return result;
     }
-    await abortOnFailure(child, () => child.queryRunner.commitTransaction());
+    await abortOnFailure(child, () => this.#commit(child));
     parent.aggregates.adopt(child.aggregates);
     return result;
+  }
+
+  async #commit(child: TransactionScope): Promise<void> {
+    child.ensureOpen('Committing a nested uow.run()');
+    child.ensureNoOpenChildSavepoint();
+    await child.queryRunner.commitTransaction();
   }
 }

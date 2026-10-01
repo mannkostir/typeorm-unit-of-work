@@ -4,7 +4,9 @@ export {
   DataSourceNotInitializedError,
   EventCascadeLimitExceededError,
   InvalidUnitOfWorkOptionsError,
+  OpenSavepointAtCommitError,
   ScopeNotActiveError,
+  TransactionLeftOpenError,
   TransactionRollbackError,
   UnitOfWorkError,
 } from './errors/unit-of-work-errors';

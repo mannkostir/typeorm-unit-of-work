@@ -63,3 +63,19 @@ export class ConcurrentSavepointError extends UnitOfWorkError {
     );
   }
 }
+
+export class OpenSavepointAtCommitError extends UnitOfWorkError {
+  constructor() {
+    super(
+      'The unit of work tried to commit while one of its nested runs was still open, so it was rolled back and nothing was stored. Await every nested uow.run() before the enclosing work returns.',
+    );
+  }
+}
+
+export class TransactionLeftOpenError extends UnitOfWorkError {
+  constructor() {
+    super(
+      'The transaction was still open after the unit of work committed, so it was rolled back and nothing was stored. This happens when a nested uow.run() failed with OpenSavepointAtCommitError and the error was caught; await every nested uow.run() before the enclosing work returns.',
+    );
+  }
+}

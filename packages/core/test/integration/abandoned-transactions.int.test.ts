@@ -34,6 +34,16 @@ describe.each(databases)('abandoned transactions on $name', (database) => {
     };
   };
 
+  const rollbackAlwaysFailing = () => {
+    const attempts = { count: 0 };
+    return {
+      beforeTransactionRollback: () => {
+        attempts.count += 1;
+        throw new Error(`rollback ${attempts.count} failed`);
+      },
+    };
+  };
+
   beforeEach(async () => {
     dataSource = await database.open();
     queryRunners = watchQueryRunners(dataSource);
@@ -136,6 +146,25 @@ describe.each(databases)('abandoned transactions on $name', (database) => {
     expect({ stored: await storedIds(), releasedInsideTransaction: queryRunners.releasedInsideTransaction() }).toEqual({
       stored: ['o-2'],
       releasedInsideTransaction: false,
+    });
+  });
+
+  it('reports a failed rollback of the abandoned transaction together with the earlier failures', async () => {
+    const failure = new Error('work failed');
+    dataSource.subscribers.push(rollbackAlwaysFailing());
+
+    const outcome = await uow
+      .run(async () => {
+        await place('o-1');
+        throw failure;
+      })
+      .catch((error: unknown) => error);
+    dataSource.subscribers.pop();
+
+    expect(outcome).toMatchObject({
+      name: 'TransactionRollbackError',
+      rollbackError: { message: 'rollback 2 failed' },
+      originalError: { name: 'TransactionRollbackError', originalError: failure, rollbackError: { message: 'rollback 1 failed' } },
     });
   });
 });
