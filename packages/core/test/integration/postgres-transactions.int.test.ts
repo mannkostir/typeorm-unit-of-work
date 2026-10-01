@@ -1,7 +1,7 @@
 import { setTimeout } from 'node:timers/promises';
 import { type DataSource, type EntityManager, QueryFailedError, type QueryRunner } from 'typeorm';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { OpenSavepointAtCommitError } from '../../src/errors/unit-of-work-errors';
+import { OpenSavepointAtCommitError, ScopeNotActiveError } from '../../src/errors/unit-of-work-errors';
 import { InProcessEventPublisher } from '../../src/events/in-process-event-publisher';
 import { UnitOfWork } from '../../src/unit-of-work';
 import { postgres } from './support/databases';
@@ -158,6 +158,26 @@ describe('transactions on postgres only', () => {
     await Promise.all(danglingRuns);
 
     expect({ refused: outcome instanceof OpenSavepointAtCommitError, idle: await idleInTransactionCount() }).toEqual({
+      refused: true,
+      idle: 0,
+    });
+  });
+
+  it('leaves no connection idle in a transaction after refusing a nested run started while the root commits', async () => {
+    const gate = closedGate();
+    const danglingRuns: Promise<unknown>[] = [];
+    dataSource.subscribers.push({ beforeTransactionCommit: () => gate.open() });
+
+    await uow.run(async () => {
+      danglingRuns.push(
+        gate.opened.then(() => uow.run(async () => undefined, { propagation: 'nested' })).catch((error: unknown) => error),
+      );
+    });
+    const [dangling] = await Promise.all(danglingRuns);
+    dataSource.subscribers.pop();
+    await uow.run(async () => undefined);
+
+    expect({ refused: dangling instanceof ScopeNotActiveError, idle: await idleInTransactionCount() }).toEqual({
       refused: true,
       idle: 0,
     });

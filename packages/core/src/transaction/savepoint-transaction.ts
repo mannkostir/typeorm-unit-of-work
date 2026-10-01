@@ -54,8 +54,7 @@ export class SavepointTransaction {
   }
 
   async #commit(child: TransactionScope): Promise<void> {
-    child.ensureOpen('Committing a nested uow.run()');
-    child.ensureNoOpenChildSavepoint();
+    child.beginCommit();
     await child.queryRunner.commitTransaction();
   }
 }

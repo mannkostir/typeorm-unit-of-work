@@ -101,7 +101,7 @@ Savepoints on one transaction cannot overlap. Await `'nested'` runs one after an
 
 Await every nested `uow.run()` before the enclosing work returns: a root or savepoint that would commit while a `'nested'` run inside it is still open rolls back instead and rejects with `OpenSavepointAtCommitError`.
 
-A scope ends when its transaction or savepoint finishes. A promise started inside `work` and left running afterwards cannot use it: `uow.manager`, `uow.getRepository()` and `uow.track()` called from it throw `ScopeNotActiveError`, and `uow.run()` with any propagation rejects with it.
+A scope stops accepting work once it starts committing, and ends when its transaction or savepoint finishes. A promise started inside `work` and left running afterwards cannot use it: `uow.manager`, `uow.getRepository()` and `uow.track()` called from it throw `ScopeNotActiveError`, and `uow.run()` with any propagation rejects with it.
 
 SQLite limitation: SQLite shares one connection, so every query runner is the same object. `propagation: 'new'` inside a scope throws `ConnectionAlreadyInTransactionError`, and concurrent units of work are not supported on SQLite. Use `'join'` or `'nested'`.
 
@@ -143,7 +143,7 @@ Every error extends `UnitOfWorkError`.
 | `ConnectionAlreadyInTransactionError` | A root scope is requested on a driver whose query runner is already inside a transaction, as on SQLite. |
 | `ConcurrentSavepointError` | A `'nested'` run starts while another `'nested'` run on the same parent is still open. Await nested runs sequentially. |
 | `OpenSavepointAtCommitError` | A root or `'nested'` run reaches its commit while a `'nested'` run inside it is still open, typically one started without `await`. The transaction or savepoint rolls back, its events are discarded and no after-commit handler runs. Await every nested `uow.run()` before the enclosing work returns. |
-| `TransactionLeftOpenError` | The transaction was still open after the root commit, as when a caught `OpenSavepointAtCommitError` left a savepoint behind. It is rolled back, nothing is stored and no after-commit handler runs. |
+| `TransactionLeftOpenError` | The transaction was still open after the root commit, because a savepoint was left unreleased, as when a caught `OpenSavepointAtCommitError` left one behind. Whatever remained open is rolled back and no after-commit handler runs; check which data was stored. |
 | `TransactionalBindingError` | From the NestJS adapter: `@Transactional()` is on a controller, or on a provider that is request-scoped or transient. |
 
 Errors thrown by `work`, by `commitWhen` or by before-commit handlers are rethrown unchanged after the rollback. After-commit handler errors never reject `run()`, unless `onAfterCommitError` itself throws.

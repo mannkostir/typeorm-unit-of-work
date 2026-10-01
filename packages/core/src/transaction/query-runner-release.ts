@@ -18,11 +18,10 @@ export async function releaseAbandoned(queryRunner: QueryRunner, failure: unknow
 }
 
 async function rollBackLeftoverTransaction(queryRunner: QueryRunner, failure: unknown): Promise<void> {
-  if (!queryRunner.isTransactionActive) {
-    return;
-  }
   try {
-    await queryRunner.rollbackTransaction();
+    while (queryRunner.isTransactionActive) {
+      await queryRunner.rollbackTransaction();
+    }
   } catch (rollbackError) {
     throw new TransactionRollbackError(failure, rollbackError);
   }

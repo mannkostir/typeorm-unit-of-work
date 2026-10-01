@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   ConcurrentSavepointError,
   OpenSavepointAtCommitError,
+  ScopeNotActiveError,
   TransactionLeftOpenError,
 } from '../../src/errors/unit-of-work-errors';
 import { InProcessEventPublisher } from '../../src/events/in-process-event-publisher';
@@ -54,10 +55,25 @@ describe.each(databases)('nested savepoints on $name', (database) => {
     await started.opened;
   };
 
-  const settleDanglingRuns = async (gate: Gate): Promise<void> => {
+  const settleDanglingRuns = (gate: Gate): Promise<unknown[]> => {
     gate.open();
-    await Promise.all(danglingRuns);
+    return Promise.all(danglingRuns);
   };
+
+  const rootStartingNestedRunOnGate = (gate: Gate) =>
+    uow.run(async () => {
+      await place('o-1');
+      danglingRuns.push(
+        gate.opened
+          .then(() => uow.run(() => place('o-2'), { propagation: 'nested' }))
+          .catch((error: unknown) => error),
+      );
+      return 'ok';
+    });
+
+  const openingOn = (hook: 'beforeTransactionCommit' | 'afterTransactionCommit', gate: Gate) => ({
+    [hook]: () => gate.open(),
+  });
 
   const rootReturningWithNestedOpen = (gate: Gate) =>
     uow.run(async () => {
@@ -357,5 +373,53 @@ describe.each(databases)('nested savepoints on $name', (database) => {
       published: [new OrderPlaced('o-4')],
       releasedInsideTransaction: false,
     });
+  });
+
+  it('refuses a nested run started while the root commits and commits the root', async () => {
+    const gate = closedGate();
+    dataSource.subscribers.push(openingOn('beforeTransactionCommit', gate));
+
+    const result = await rootStartingNestedRunOnGate(gate);
+    const [dangling] = await settleDanglingRuns(gate);
+    dataSource.subscribers.pop();
+
+    expect({
+      result,
+      danglingRefused: dangling instanceof ScopeNotActiveError,
+      stored: await storedIds(),
+      published,
+    }).toEqual({ result: 'ok', danglingRefused: true, stored: ['o-1'], published: [new OrderPlaced('o-1')] });
+  });
+
+  it('runs later units of work normally after refusing a nested run started while the root commits', async () => {
+    const gate = closedGate();
+    dataSource.subscribers.push(openingOn('beforeTransactionCommit', gate));
+    await rootStartingNestedRunOnGate(gate).catch(() => undefined);
+    const [dangling] = await settleDanglingRuns(gate);
+    dataSource.subscribers.pop();
+
+    await uow.run(() => place('o-3'));
+
+    expect({
+      danglingRefused: dangling instanceof ScopeNotActiveError,
+      stored: await storedIds(),
+      releasedInsideTransaction: queryRunners.releasedInsideTransaction(),
+    }).toEqual({ danglingRefused: true, stored: ['o-1', 'o-3'], releasedInsideTransaction: false });
+  });
+
+  it('refuses a nested run started after the root committed and still publishes the root events', async () => {
+    const gate = closedGate();
+    dataSource.subscribers.push(openingOn('afterTransactionCommit', gate));
+
+    const result = await rootStartingNestedRunOnGate(gate).catch((error: unknown) => error);
+    const [dangling] = await settleDanglingRuns(gate);
+    dataSource.subscribers.pop();
+
+    expect({
+      result,
+      danglingRefused: dangling instanceof ScopeNotActiveError,
+      stored: await storedIds(),
+      published,
+    }).toEqual({ result: 'ok', danglingRefused: true, stored: ['o-1'], published: [new OrderPlaced('o-1')] });
   });
 });

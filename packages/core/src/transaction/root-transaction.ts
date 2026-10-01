@@ -86,7 +86,7 @@ export class RootTransaction {
     const events = await store.runIn(scope, () =>
       drainBeforeCommit(scope.aggregates, (batch) => publisher.beforeCommit(batch, scope.context), maxEventRounds),
     );
-    scope.ensureNoOpenChildSavepoint();
+    scope.beginCommit();
     await scope.queryRunner.commitTransaction();
     return events;
   }

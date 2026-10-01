@@ -3,7 +3,7 @@ import type { TransactionScope } from '../scope/transaction-scope';
 
 export async function abortScope(scope: TransactionScope, originalError: unknown): Promise<void> {
   scope.aggregates.discardPendingEvents();
-  if (!scope.isOpen() || !scope.queryRunner.isTransactionActive) {
+  if (scope.hasEnded() || !scope.queryRunner.isTransactionActive) {
     return;
   }
   try {

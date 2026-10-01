@@ -75,7 +75,7 @@ export class OpenSavepointAtCommitError extends UnitOfWorkError {
 export class TransactionLeftOpenError extends UnitOfWorkError {
   constructor() {
     super(
-      'The transaction was still open after the unit of work committed, so it was rolled back and nothing was stored. This happens when a nested uow.run() failed with OpenSavepointAtCommitError and the error was caught; await every nested uow.run() before the enclosing work returns.',
+      'The transaction was still open after the unit of work committed, so whatever remained open was rolled back. A savepoint was left unreleased, for example by a nested uow.run() that was not awaited or whose OpenSavepointAtCommitError was caught; check which data was stored, and await every nested uow.run() before the enclosing work returns.',
     );
   }
 }
