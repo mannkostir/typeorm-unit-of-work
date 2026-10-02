@@ -29,7 +29,11 @@ describe('outbox rows across transaction boundaries', () => {
   };
 
   afterEach(async () => {
-    await dataSource.destroy();
+    try {
+      expect(queryRunners.unreleasedCount()).toBe(0);
+    } finally {
+      await dataSource.destroy();
+    }
   });
 
   describe('on the default table', () => {
@@ -94,7 +98,7 @@ describe('outbox rows across transaction boundaries', () => {
       expect(await storedAggregateIds()).toEqual(['o-1']);
     });
 
-    it('stores events raised by before-commit handlers in later rounds', async () => {
+    it('stores events raised by before-commit handlers', async () => {
       inner.onBeforeCommit(OrderPlaced, async (event, context) => {
         const orders = context.getRepository(Order);
         const order = await orders.findOneByOrFail({ id: event.orderId });
@@ -126,18 +130,6 @@ describe('outbox rows across transaction boundaries', () => {
 
       await expect(run).rejects.toThrow(/unsupported Unicode escape sequence/);
       expect(await dataSource.getRepository(Order).count()).toBe(0);
-    });
-
-    it('releases every query runner when Postgres rejects a payload', async () => {
-      await uow
-        .run(async () => {
-          const order = Order.place('o-1');
-          order.note('nul\u0000byte');
-          await uow.getRepository(Order).save(order);
-        })
-        .catch(() => undefined);
-
-      expect(queryRunners.unreleasedCount()).toBe(0);
     });
   });
 
