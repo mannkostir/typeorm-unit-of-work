@@ -103,9 +103,22 @@ Await every nested `uow.run()` before the enclosing work returns: a root or save
 
 A scope stops accepting work once it starts committing or rolling back, and ends when its transaction or savepoint finishes. A promise started inside `work` and left running afterwards cannot use it: `uow.manager`, `uow.getRepository()` and `uow.track()` called from it throw `ScopeNotActiveError`, and `uow.run()` with any propagation rejects with it.
 
-TypeORM's own transaction subscribers (`beforeTransactionCommit`, `afterTransactionCommit`, `beforeTransactionRollback`, `afterTransactionRollback`) do not run inside the scope that is committing or rolling back. There `uow.manager`, `uow.getRepository()`, `uow.track()` and `uow.run()` act on the enclosing scope of a `'nested'` run, or, around a root transaction, on no scope at all: `dataSource.manager`, or `ScopeNotActiveError` when `strict` is on. Use `event.manager` inside those subscribers, or register a before-commit handler on the publisher for work that belongs in the commit.
+TypeORM's own transaction subscribers (`beforeTransactionCommit`, `afterTransactionCommit`, `beforeTransactionRollback`, `afterTransactionRollback`) do not run inside the scope that is committing or rolling back. They see the scope of the code that called `uow.run()`:
+
+- Around a `'nested'` run, that is the enclosing scope. `uow.manager` and `uow.getRepository()` return its manager, `uow.track()` tracks into it, and `uow.run()` joins it.
+- Around a root opened with `propagation: 'new'` inside another scope, that is the outer scope. `uow.manager` and `uow.getRepository()` return the outer transaction's manager, which is a different transaction on another connection: writes made through it are not part of the transaction being committed or rolled back, and can deadlock against it.
+- Around any other root, there is no scope. `uow.manager` and `uow.getRepository()` fall back to `dataSource.manager`, or throw `ScopeNotActiveError` when `strict` is on; `uow.track()` throws `ScopeNotActiveError`; `uow.run()` opens a new root transaction.
+
+Use `event.manager` inside those subscribers, or register a before-commit handler on the publisher for work that belongs in the commit.
+
+A `beforeTransactionStart` subscriber must not wait on the rollback of the same unit of work, for example on something a `beforeTransactionRollback` or `afterTransactionRollback` subscriber does. Before rolling back, and before releasing its connection, a unit of work waits for every savepoint start still in flight on that connection, so such a subscriber makes `run()` never settle.
 
 SQLite limitation: SQLite shares one connection, so every query runner is the same object. `propagation: 'new'` inside a scope throws `ConnectionAlreadyInTransactionError`, and concurrent units of work are not supported on SQLite. Use `'join'` or `'nested'`.
+
+Limitation: un-awaited work is not fenced. Await every nested `uow.run()` and every write before the enclosing work returns.
+
+- A root or `'nested'` run that fails, or whose `commitWhen` returns `false`, while a `'nested'` run inside it is still open undoes only the innermost open savepoint with its own rollback. The root then finds its transaction still open and rejects with `TransactionLeftOpenError`, unless the root itself failed, in which case it rejects with its own error. Either way the whole transaction is rolled back and none of its data is kept.
+- A write such as `repository.save()` that was started without `await` and is already past its scope check when the scope starts committing or rolling back is not stopped. Depending on timing it can land inside the transaction or, on SQLite, after it in autocommit mode.
 
 Limitation: an event raised inside a savepoint that rolls back, on an aggregate that savepoint had not tracked by the time an inner savepoint opened (or never tracked), is not discarded. Only the events of aggregates tracked by the savepoint are dropped on rollback.
 
