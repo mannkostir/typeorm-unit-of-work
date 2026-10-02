@@ -6,6 +6,7 @@ describe('public API', () => {
   it('exports exactly the documented runtime values', () => {
     expect(Object.keys(api).sort()).toEqual([
       'AggregateRoot',
+      'AggregateSavedDuringCommitError',
       'ConcurrentSavepointError',
       'ConnectionAlreadyInTransactionError',
       'DataSourceNotInitializedError',

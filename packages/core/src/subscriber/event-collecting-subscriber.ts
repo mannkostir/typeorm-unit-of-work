@@ -32,6 +32,6 @@ export class EventCollectingSubscriber implements EntitySubscriberInterface {
     if (!isDomainEventSource(entity)) {
       return;
     }
-    this.scopes.find(queryRunner)?.aggregates.track(entity);
+    this.scopes.find(queryRunner)?.trackSaved(entity);
   }
 }

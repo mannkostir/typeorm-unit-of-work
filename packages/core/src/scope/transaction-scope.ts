@@ -1,13 +1,15 @@
 import type { QueryRunner } from 'typeorm';
 import {
+  AggregateSavedDuringCommitError,
   ConcurrentSavepointError,
   OpenSavepointAtCommitError,
   ScopeNotActiveError,
 } from '../errors/unit-of-work-errors';
+import type { DomainEventSource } from '../events/domain-event-source';
 import { type TransactionContext, transactionContextOf } from '../transaction-context';
 import { AggregateTracker } from './aggregate-tracker';
 
-type ScopePhase = 'accepting-work' | 'settling' | 'ended';
+type ScopePhase = 'accepting-work' | 'committing' | 'aborting' | 'ended';
 
 export class TransactionScope {
   readonly context: TransactionContext;
@@ -23,6 +25,13 @@ export class TransactionScope {
   ) {
     this.context = transactionContextOf(queryRunner.manager);
     this.#runnerOwner = parent === undefined ? this : parent.#runnerOwner;
+  }
+
+  trackSaved(aggregate: DomainEventSource): void {
+    if (this.#hasDispatchedBeforeCommitEvents()) {
+      throw new AggregateSavedDuringCommitError(aggregate.constructor.name);
+    }
+    this.aggregates.track(aggregate);
   }
 
   holdPendingEventsAlongAncestry(): void {
@@ -61,12 +70,12 @@ export class TransactionScope {
     if (this.#childSavepointOpen) {
       throw new OpenSavepointAtCommitError();
     }
-    this.stopAcceptingWork();
+    this.#phase = 'committing';
   }
 
   stopAcceptingWork(): void {
-    if (this.#phase === 'accepting-work') {
-      this.#phase = 'settling';
+    if (this.#phase !== 'ended') {
+      this.#phase = 'aborting';
     }
   }
 
@@ -89,6 +98,10 @@ export class TransactionScope {
       this.#savepointStartsInFlight.delete(settled);
     });
     this.#savepointStartsInFlight.add(settled);
+  }
+
+  #hasDispatchedBeforeCommitEvents(): boolean {
+    return this.#phase === 'committing' && this.parent === undefined;
   }
 
   #acceptsWork(): boolean {

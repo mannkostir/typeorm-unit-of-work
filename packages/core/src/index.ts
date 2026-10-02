@@ -1,4 +1,5 @@
 export {
+  AggregateSavedDuringCommitError,
   ConcurrentSavepointError,
   ConnectionAlreadyInTransactionError,
   DataSourceNotInitializedError,
