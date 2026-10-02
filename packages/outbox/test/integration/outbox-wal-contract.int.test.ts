@@ -5,10 +5,12 @@ import { OutboxEventPublisher } from '../../src/outbox-event-publisher';
 import { openPostgres } from './support/databases';
 import { Order, OrderPlaced } from './support/model';
 import { storedOutboxRows } from './support/outbox-rows';
+import { type QueryRunnerWatch, watchQueryRunners } from './support/query-runner-watch';
 import { openWalSlot, type WalSlot } from './support/wal-slot';
 
 describe('outbox WAL contract with rows deleted after insert', () => {
   let dataSource: DataSource;
+  let queryRunners: QueryRunnerWatch;
   let wal: WalSlot;
   let uow: UnitOfWork;
 
@@ -16,6 +18,7 @@ describe('outbox WAL contract with rows deleted after insert', () => {
 
   beforeEach(async () => {
     dataSource = await openPostgres();
+    queryRunners = watchQueryRunners(dataSource);
     wal = await openWalSlot(dataSource);
     const outbox = new OutboxEventPublisher({ inner: new InProcessEventPublisher() });
     outbox.register(OrderPlaced, {
@@ -27,14 +30,30 @@ describe('outbox WAL contract with rows deleted after insert', () => {
   });
 
   afterEach(async () => {
-    await wal.drop();
-    await dataSource.destroy();
+    try {
+      expect(queryRunners.unreleasedCount()).toBe(0);
+    } finally {
+      await wal.drop();
+      await dataSource.destroy();
+    }
   });
 
   it('leaves the outbox table empty after commit', async () => {
     await placeOrder('o-1');
 
     expect(await storedOutboxRows(dataSource)).toEqual([]);
+  });
+
+  it('deletes only the rows written by that call', async () => {
+    const foreignId = '00000000-0000-4000-8000-000000000000';
+    await dataSource.query(
+      `INSERT INTO "outbox" ("id", "aggregatetype", "aggregateid", "type", "payload") VALUES ($1, 'order', 'foreign', 'order.foreign', NULL)`,
+      [foreignId],
+    );
+
+    await placeOrder('o-1');
+
+    expect((await storedOutboxRows(dataSource)).map((row) => row.id)).toEqual([foreignId]);
   });
 
   it('puts the committed insert into the WAL', async () => {

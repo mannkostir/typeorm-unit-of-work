@@ -33,7 +33,11 @@ describe('outbox writes on postgres', () => {
   });
 
   afterEach(async () => {
-    await dataSource.destroy();
+    try {
+      expect(queryRunners.unreleasedCount()).toBe(0);
+    } finally {
+      await dataSource.destroy();
+    }
   });
 
   it('stores a committed event as an outbox row', async () => {
@@ -102,6 +106,21 @@ describe('outbox writes on postgres', () => {
     ]);
   });
 
+  it('delivers an unregistered event to inner before commit', async () => {
+    const received: object[] = [];
+    inner.onBeforeCommit(OrderShipped, (event) => {
+      received.push(event);
+    });
+
+    await uow.run(async () => {
+      const order = Order.place('o-1');
+      order.ship();
+      await uow.getRepository(Order).save(order);
+    });
+
+    expect(received).toEqual([new OrderShipped('o-1')]);
+  });
+
   it('rolls the business write back when a mapper fails', async () => {
     outbox.register(OrderShipped, {
       type: 'order.shipped',
@@ -120,24 +139,6 @@ describe('outbox writes on postgres', () => {
     await expect(run).rejects.toBeInstanceOf(OutboxMappingError);
     expect(await dataSource.getRepository(Order).count()).toBe(0);
   });
-
-  it('releases every query runner when a mapper fails', async () => {
-    outbox.register(OrderShipped, {
-      type: 'order.shipped',
-      aggregateType: 'order',
-      aggregateId: () => '',
-    });
-
-    await uow
-      .run(async () => {
-        const order = Order.place('o-1');
-        order.ship();
-        await uow.getRepository(Order).save(order);
-      })
-      .catch(() => undefined);
-
-    expect(queryRunners.unreleasedCount()).toBe(0);
-  });
 });
 
 describe('outbox writes on sqlite', () => {
@@ -154,7 +155,11 @@ describe('outbox writes on sqlite', () => {
   });
 
   afterEach(async () => {
-    await dataSource.destroy();
+    try {
+      expect(queryRunners.unreleasedCount()).toBe(0);
+    } finally {
+      await dataSource.destroy();
+    }
   });
 
   it('refuses the driver and stores nothing', async () => {
@@ -162,12 +167,6 @@ describe('outbox writes on sqlite', () => {
 
     await expect(run).rejects.toBeInstanceOf(UnsupportedDriverError);
     expect(await dataSource.getRepository(Order).count()).toBe(0);
-  });
-
-  it('releases every query runner after refusing the driver', async () => {
-    await uow.run(() => uow.getRepository(Order).save(Order.place('o-1'))).catch(() => undefined);
-
-    expect(queryRunners.unreleasedCount()).toBe(0);
   });
 
   it('commits a run that raises no registered event', async () => {
