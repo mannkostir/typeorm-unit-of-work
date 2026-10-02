@@ -5,17 +5,23 @@ import { join } from 'node:path';
 const require = createRequire(import.meta.url);
 
 const packages = [
-  { name: 'typeorm-unit-of-work', exportName: 'UnitOfWork', distDirectory: 'packages/core/dist', forbiddenImport: 'typeorm' },
-  { name: 'typeorm-unit-of-work-nestjs', exportName: 'UnitOfWorkModule', distDirectory: 'packages/nestjs/dist', forbiddenImport: undefined },
+  { name: 'typeorm-unit-of-work', exportName: 'UnitOfWork', distDirectory: 'packages/core/dist', forbiddenImports: ['typeorm'] },
+  { name: 'typeorm-unit-of-work-nestjs', exportName: 'UnitOfWorkModule', distDirectory: 'packages/nestjs/dist', forbiddenImports: [] },
+  {
+    name: 'typeorm-unit-of-work-outbox',
+    exportName: 'OutboxEventPublisher',
+    distDirectory: 'packages/outbox/dist',
+    forbiddenImports: ['typeorm', 'typeorm-unit-of-work'],
+  },
 ];
 
-for (const { name, exportName, distDirectory, forbiddenImport } of packages) {
+for (const { name, exportName, distDirectory, forbiddenImports } of packages) {
   const imported = await import(name);
   const required = require(name);
   if (typeof imported[exportName] !== 'function' || typeof required[exportName] !== 'function') {
     throw new Error(`${name} does not expose ${exportName} through both import and require`);
   }
-  if (forbiddenImport !== undefined) {
+  for (const forbiddenImport of forbiddenImports) {
     await assertNoRuntimeImport(distDirectory, forbiddenImport);
   }
   console.log(`${name}: import and require both load ${exportName}`);

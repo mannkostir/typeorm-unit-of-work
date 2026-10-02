@@ -1,0 +1,7 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "paths": { "typeorm-unit-of-work": ["../core/src/index.ts"] }
+  },
+  "include": ["src", "test", "vitest.config.ts", "tsup.config.ts"]
+}
