@@ -1,0 +1,48 @@
+# Reference
+
+## `UnitOfWorkOptions`
+
+Passed to `new UnitOfWork(options)`.
+
+| Option | Type | Default | Notes |
+|---|---|---|---|
+| `dataSource` | `DataSource` | required | Must be initialized. |
+| `publisher` | `DomainEventPublisher` | required | Usually an `InProcessEventPublisher`. |
+| `onAfterCommitError` | `(error: unknown, event: object) => void` | required | No silent default. |
+| `maxEventRounds` | `number` | `100` | An integer of at least 1. |
+| `strict` | `boolean` | `false` | Throw `ScopeNotActiveError` from `manager` and `getRepository()` outside a scope, instead of falling back to `dataSource.manager`. |
+
+## `RunOptions<Result>`
+
+Passed as the second argument of `uow.run(work, options)`, and to `@Transactional(options)`. It is generic over the result of `work`, so `commitWhen` is typed `(result: Result) => boolean`.
+
+| Option | Type | Default | Notes |
+|---|---|---|---|
+| `propagation` | `'join' \| 'new' \| 'nested'` | `'join'` | See [Propagation](propagation.md). |
+| `isolationLevel` | TypeORM `IsolationLevel` | driver default | Applies only when a new transaction is opened. Ignored by `'join'` and by `'nested'` when a parent scope exists. |
+| `commitWhen` | `(result: Result) => boolean` | always `true` | When it returns `false`, the transaction rolls back and `run()` returns the result. When it throws, the transaction rolls back and `run()` rejects with that error. |
+
+## `UnitOfWork`
+
+Members: `run(work, options?)`, `manager`, `getRepository(target)` and `track(aggregate)`. `work` receives a `TransactionContext` exposing `manager` and `getRepository`; the query runner is never exposed.
+
+## Errors
+
+Every error extends `UnitOfWorkError`.
+
+| Error | Thrown when |
+|---|---|
+| `TransactionRollbackError` | The rollback itself failed. Carries `originalError` and `rollbackError`; `originalError` is `undefined` when the rollback was caused by `commitWhen` returning `false`. If the final rollback before the connection is released fails as well, `run()` rejects with another `TransactionRollbackError` whose `originalError` is the error that was propagating; the connection is still released, because TypeORM's public `QueryRunner.release()` cannot discard it. |
+| `EventCascadeLimitExceededError` | Before-commit handlers were still raising events after `maxEventRounds` rounds. Carries `rounds` and `lastRoundEventNames`. The transaction rolls back. |
+| `ScopeNotActiveError` | `track()` is called outside a scope, or `manager` or `getRepository()` is used outside a scope when `strict` is on, or any of `manager`, `getRepository()`, `track()` and `run()` is called from a scope that is committing, rolling back or already finished. |
+| `DataSourceNotInitializedError` | The `UnitOfWork` constructor receives a `DataSource` that is not initialized. |
+| `InvalidUnitOfWorkOptionsError` | Constructor or `run()` options are invalid, including a missing `dataSource`. Carries `option`. |
+| `ConnectionAlreadyInTransactionError` | A root scope is requested on a driver whose query runner is already inside a transaction, as on SQLite. |
+| `ConcurrentSavepointError` | A `'nested'` run starts while another `'nested'` run on the same parent is still open. Await nested runs sequentially. |
+| `OpenSavepointAtCommitError` | A root or `'nested'` run reaches its commit while a `'nested'` run inside it is still open, typically one started without `await`. The transaction or savepoint rolls back, its events are discarded and no after-commit handler runs. Await every nested `uow.run()` before the enclosing work returns. |
+| `AggregateSavedDuringCommitError` | An aggregate is saved while a root transaction is committing, as from a TypeORM `beforeTransactionCommit` or `afterTransactionCommit` subscriber, when its events could no longer be published. Carries `aggregateName`. Before the commit the transaction rolls back; after it, `run()` rejects with the transaction's writes stored and no after-commit handler runs. Save aggregates from a before-commit handler on the publisher instead. |
+| `TransactionLeftOpenError` | The transaction was still open after the root commit, because a savepoint was left unreleased, as when a caught `OpenSavepointAtCommitError` left one behind. Whatever remained open is rolled back and no after-commit handler runs; check which data was stored. |
+
+Errors thrown by `work`, by `commitWhen` or by before-commit handlers are rethrown unchanged after the rollback. After-commit handler errors never reject `run()`, unless `onAfterCommitError` itself throws.
+
+The NestJS adapter's `TransactionalBindingError` and the outbox writer's errors are listed in their own READMEs.

@@ -5,5 +5,4 @@ coverage
 .superpowers
 CLAUDE.md
 .mcp.json
-packages/*/README.md
 packages/*/LICENSE
