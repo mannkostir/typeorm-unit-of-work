@@ -81,6 +81,14 @@ After the commit succeeds, `publisher.afterCommit(events, onAfterCommitError)` r
 
 If `work` throws, `commitWhen` returns `false` or throws, or a before-commit handler throws, the transaction rolls back, pending events are discarded and no after-commit handler runs. An error thrown by `commitWhen` is rethrown unchanged.
 
+Without `commitWhen`, every value `work` returns commits. Work that reports failure by returning a value instead of throwing, such as a neverthrow `Result`, an `Either` or an `{ ok: false }` object, therefore commits its partial writes and publishes its events. Reject such values with `commitWhen`:
+
+```ts
+const result = await uow.run(() => placeOrder(command), { commitWhen: (outcome) => outcome.isOk() });
+```
+
+On a failure the transaction rolls back, pending events are discarded, and `run()` returns the failure value. `@Transactional()` takes the same option. A `'join'` run inside an existing scope ignores its own `commitWhen`: the `commitWhen` of the run that opened the transaction or savepoint decides.
+
 Events are ordered per aggregate, not globally. When a savepoint's aggregates merge into its parent, events of different aggregates may be delivered in a different order from the one they were raised in; the events of one aggregate keep their order.
 
 `InProcessEventPublisher` matches handlers with `event instanceof EventClass` and runs them sequentially, in registration order, per event, in event order. Register them with `onBeforeCommit(EventClass, (event, tx) => ...)` and `onAfterCommit(EventClass, (event) => ...)`. To deliver events elsewhere, implement the `DomainEventPublisher` interface.

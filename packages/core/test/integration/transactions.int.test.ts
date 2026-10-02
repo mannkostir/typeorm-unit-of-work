@@ -11,6 +11,10 @@ const failOnAfterCommitError = (error: unknown): never => {
   throw error;
 };
 
+type ReturnedOutcome = { readonly isOk: () => boolean };
+
+const returnedFailure: ReturnedOutcome = { isOk: () => false };
+
 const gate = () => {
   const handle = { open: (): void => undefined };
   const opened = new Promise<void>((resolve) => {
@@ -83,6 +87,27 @@ describe.each(databases)('transactions on $name', (database) => {
     );
 
     expect({ result, stored: await storedOrders() }).toEqual({ result: 'rejected', stored: 0 });
+  });
+
+  it('commits work that returns a failure value when no commitWhen is given', async () => {
+    await uow.run(async () => {
+      await uow.getRepository(Order).save(Order.place('o-1'));
+      return returnedFailure;
+    });
+
+    expect(await storedOrders()).toBe(1);
+  });
+
+  it('rolls back and returns a failure value when commitWhen checks isOk', async () => {
+    const result = await uow.run(
+      async (): Promise<ReturnedOutcome> => {
+        await uow.getRepository(Order).save(Order.place('o-1'));
+        return returnedFailure;
+      },
+      { commitWhen: (outcome) => outcome.isOk() },
+    );
+
+    expect({ result, stored: await storedOrders() }).toEqual({ result: returnedFailure, stored: 0 });
   });
 
   it('gives the work the same manager as uow.manager', async () => {
