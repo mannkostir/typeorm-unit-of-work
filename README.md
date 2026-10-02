@@ -2,7 +2,7 @@
 
 Ambient TypeORM transactions and aggregate domain events, published before and after commit. Open a unit of work once, and every repository you obtain from it inside the callback, at any call depth, joins the same transaction through `AsyncLocalStorage`. Aggregates you save are collected, and their domain events are delivered to handlers inside the transaction (before commit) and after it has committed. The core is framework-agnostic; an optional NestJS adapter is published separately. It supports TypeORM 0.3 and 1.x.
 
-Status: 0.1.0 — pre-release; the API may change before 1.0
+Status: 0.1.1 — pre-release; the API may change before 1.0
 
 ## Install
 
