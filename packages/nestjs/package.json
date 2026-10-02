@@ -1,6 +1,6 @@
 {
   "name": "typeorm-unit-of-work-nestjs",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "NestJS module, @Transactional() and @nestjs/cqrs bridge for typeorm-unit-of-work",
   "license": "MIT",
   "author": "mannkostir",
@@ -48,7 +48,7 @@
     "./package.json": "./package.json"
   },
   "peerDependencies": {
-    "typeorm-unit-of-work": "0.1.0",
+    "typeorm-unit-of-work": "0.1.1",
     "@nestjs/common": "^11.0.0 || ^12.0.0",
     "@nestjs/core": "^11.0.0 || ^12.0.0",
     "reflect-metadata": "^0.2.0",
