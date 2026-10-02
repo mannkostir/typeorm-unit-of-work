@@ -61,6 +61,17 @@ jobs:
             exit 1
           fi
           for name in typeorm-unit-of-work typeorm-unit-of-work-nestjs typeorm-unit-of-work-outbox; do
+            if ! npm view "$name" name >"$RUNNER_TEMP/npm-name.out" 2>"$RUNNER_TEMP/npm-name.err"; then
+              if grep -q E404 "$RUNNER_TEMP/npm-name.err"; then
+                echo "::error::$name has never been published. Publish it once manually from a machine logged in to npm, configure its trusted publisher on npmjs.com, then delete this Release and publish a new one."
+              else
+                echo "::error::Could not check whether $name exists on npm."
+                cat "$RUNNER_TEMP/npm-name.err"
+              fi
+              exit 1
+            fi
+          done
+          for name in typeorm-unit-of-work typeorm-unit-of-work-nestjs typeorm-unit-of-work-outbox; do
             if npm view "$name@$core_version" version >"$RUNNER_TEMP/npm-view.out" 2>"$RUNNER_TEMP/npm-view.err"; then
               if [ -s "$RUNNER_TEMP/npm-view.out" ]; then
                 echo "::error::$name@$core_version is already published. Bump the version in all three packages."
