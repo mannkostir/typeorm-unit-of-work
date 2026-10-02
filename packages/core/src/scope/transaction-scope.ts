@@ -12,8 +12,9 @@ type ScopePhase = 'accepting-work' | 'settling' | 'ended';
 export class TransactionScope {
   readonly context: TransactionContext;
   readonly aggregates = new AggregateTracker();
+  readonly #runnerOwner: TransactionScope;
+  readonly #savepointStartsInFlight = new Set<Promise<unknown>>();
   #childSavepointOpen = false;
-  #childSavepointStart: Promise<unknown> = Promise.resolve();
   #phase: ScopePhase = 'accepting-work';
 
   constructor(
@@ -21,6 +22,7 @@ export class TransactionScope {
     private readonly parent?: TransactionScope,
   ) {
     this.context = transactionContextOf(queryRunner.manager);
+    this.#runnerOwner = parent === undefined ? this : parent.#runnerOwner;
   }
 
   holdPendingEventsAlongAncestry(): void {
@@ -43,12 +45,15 @@ export class TransactionScope {
 
   startChildSavepoint(): Promise<void> {
     const start = this.queryRunner.startTransaction();
-    this.#childSavepointStart = Promise.allSettled([start]);
+    this.#runnerOwner.#recordSavepointStart(start);
     return start;
   }
 
-  async awaitChildSavepointStart(): Promise<void> {
-    await this.#childSavepointStart;
+  async awaitSavepointStartsOnRunner(): Promise<void> {
+    const starts = this.#runnerOwner.#savepointStartsInFlight;
+    while (starts.size > 0) {
+      await Promise.all(starts);
+    }
   }
 
   beginCommit(): void {
@@ -77,6 +82,13 @@ export class TransactionScope {
     if (!this.#acceptsWork()) {
       throw new ScopeNotActiveError(operation);
     }
+  }
+
+  #recordSavepointStart(start: Promise<void>): void {
+    const settled: Promise<unknown> = Promise.allSettled([start]).then(() => {
+      this.#savepointStartsInFlight.delete(settled);
+    });
+    this.#savepointStartsInFlight.add(settled);
   }
 
   #acceptsWork(): boolean {

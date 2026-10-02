@@ -1,3 +1,4 @@
+import { setTimeout } from 'node:timers/promises';
 import { type DataSource, QueryFailedError } from 'typeorm';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
@@ -89,6 +90,30 @@ describe.each(databases)('nested savepoints on $name', (database) => {
       },
       { commitWhen: () => false },
     );
+
+  const rootFailingWhileGrandchildStarts = (failure: Error, middleReleased: Gate) =>
+    uow.run(async () => {
+      await place('o-1');
+      const grandchildRequested = closedGate();
+      danglingRuns.push(
+        uow
+          .run(
+            async () => {
+              danglingRuns.push(
+                uow.run(() => place('o-3'), { propagation: 'nested' }).catch((error: unknown) => error),
+              );
+              grandchildRequested.open();
+              await middleReleased.opened;
+            },
+            { propagation: 'nested' },
+          )
+          .catch((error: unknown) => error),
+      );
+      await grandchildRequested.opened;
+      throw failure;
+    });
+
+  const slowTransactionStart = { beforeTransactionStart: () => setTimeout(20) };
 
   const openingOn = (
     hook: 'beforeTransactionCommit' | 'afterTransactionCommit' | 'beforeTransactionRollback',
@@ -500,5 +525,28 @@ describe.each(databases)('nested savepoints on $name', (database) => {
       stored: await storedIds(),
       releasedInsideTransaction: queryRunners.releasedInsideTransaction(),
     }).toEqual({ rethrown: true, danglingRefused: true, stored: ['o-3'], releasedInsideTransaction: false });
+  });
+
+  it('waits for a grandchild savepoint that is still opening before releasing a failed root', async () => {
+    const failure = new Error('work failed');
+    const middleReleased = closedGate();
+    dataSource.subscribers.push(slowTransactionStart);
+
+    const outcome = await rootFailingWhileGrandchildStarts(failure, middleReleased).catch((error: unknown) => error);
+    dataSource.subscribers.pop();
+    const dangling = await settleDanglingRuns(middleReleased);
+    await uow.run(() => place('o-9'));
+
+    expect({
+      rethrown: outcome === failure,
+      danglingRefused: dangling.map((error) => error instanceof ScopeNotActiveError),
+      stored: await storedIds(),
+      releasedInsideTransaction: queryRunners.releasedInsideTransaction(),
+    }).toEqual({
+      rethrown: true,
+      danglingRefused: [true, true],
+      stored: ['o-9'],
+      releasedInsideTransaction: false,
+    });
   });
 });

@@ -4,7 +4,7 @@ import type { TransactionScope } from '../scope/transaction-scope';
 export async function abortScope(scope: TransactionScope, originalError: unknown): Promise<void> {
   scope.stopAcceptingWork();
   scope.aggregates.discardPendingEvents();
-  await scope.awaitChildSavepointStart();
+  await scope.awaitSavepointStartsOnRunner();
   if (!scope.controlsItsTransaction() || !scope.queryRunner.isTransactionActive) {
     return;
   }

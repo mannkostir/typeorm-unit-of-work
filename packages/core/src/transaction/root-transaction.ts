@@ -45,9 +45,9 @@ export class RootTransaction {
     }
     const scope = new TransactionScope(queryRunner);
     const settlement = await this.#settleThenClose(scope, work, options).catch((failure: unknown) =>
-      releaseAbandoned(queryRunner, failure),
+      releaseAbandoned(scope, failure),
     );
-    await releaseSettled(queryRunner);
+    await releaseSettled(scope);
     return settlement;
   }
 

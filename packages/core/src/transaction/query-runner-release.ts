@@ -1,15 +1,19 @@
 import type { QueryRunner } from 'typeorm';
 import { TransactionLeftOpenError, TransactionRollbackError } from '../errors/unit-of-work-errors';
+import type { TransactionScope } from '../scope/transaction-scope';
 
-export async function releaseSettled(queryRunner: QueryRunner): Promise<void> {
-  if (queryRunner.isTransactionActive) {
-    await releaseAbandoned(queryRunner, new TransactionLeftOpenError());
+export async function releaseSettled(scope: TransactionScope): Promise<void> {
+  await scope.awaitSavepointStartsOnRunner();
+  if (scope.queryRunner.isTransactionActive) {
+    await releaseAbandoned(scope, new TransactionLeftOpenError());
   }
-  await queryRunner.release();
+  await scope.queryRunner.release();
 }
 
-export async function releaseAbandoned(queryRunner: QueryRunner, failure: unknown): Promise<never> {
+export async function releaseAbandoned(scope: TransactionScope, failure: unknown): Promise<never> {
+  const { queryRunner } = scope;
   try {
+    await scope.awaitSavepointStartsOnRunner();
     await rollBackLeftoverTransaction(queryRunner, failure);
   } finally {
     await queryRunner.release();
