@@ -1,0 +1,60 @@
+import type { TransactionalWork } from '../propagation/propagation-strategy';
+import type { ScopeRegistry } from '../scope/scope-registry';
+import type { ScopeStore } from '../scope/scope-store';
+import { TransactionScope } from '../scope/transaction-scope';
+import type { ResolvedRunOptions } from '../unit-of-work-options';
+import { abortOnFailure, abortScope } from './scope-abort';
+
+export class SavepointTransaction {
+  constructor(
+    private readonly store: ScopeStore,
+    private readonly registry: ScopeRegistry,
+  ) {}
+
+  run<Result>(
+    parent: TransactionScope,
+    work: TransactionalWork<Result>,
+    options: ResolvedRunOptions<Result>,
+  ): Promise<Result> {
+    return parent.withChildSavepoint(() => this.#open(parent, work, options));
+  }
+
+  #open<Result>(
+    parent: TransactionScope,
+    work: TransactionalWork<Result>,
+    options: ResolvedRunOptions<Result>,
+  ): Promise<Result> {
+    const child = new TransactionScope(parent.queryRunner, parent);
+    parent.holdPendingEventsAlongAncestry();
+    return this.registry.withBinding(parent.queryRunner, child, async () => {
+      try {
+        await parent.startChildSavepoint();
+        return await this.#settle(parent, child, work, options);
+      } finally {
+        child.close();
+      }
+    });
+  }
+
+  async #settle<Result>(
+    parent: TransactionScope,
+    child: TransactionScope,
+    work: TransactionalWork<Result>,
+    options: ResolvedRunOptions<Result>,
+  ): Promise<Result> {
+    const result = await abortOnFailure(child, () => this.store.runIn(child, () => work(child.context)));
+    const accepted = await abortOnFailure(child, async () => options.commitWhen(result));
+    if (!accepted) {
+      await abortScope(child, undefined);
+      return result;
+    }
+    await abortOnFailure(child, () => this.#commit(child));
+    parent.aggregates.adopt(child.aggregates);
+    return result;
+  }
+
+  async #commit(child: TransactionScope): Promise<void> {
+    child.beginCommit();
+    await child.queryRunner.commitTransaction();
+  }
+}

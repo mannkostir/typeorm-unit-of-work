@@ -1,0 +1,27 @@
+{
+  "name": "typeorm-unit-of-work",
+  "version": "0.1.0",
+  "description": "Unit of Work for TypeORM: ambient transactions and aggregate domain events published before and after commit",
+  "license": "MIT",
+  "type": "module",
+  "sideEffects": false,
+  "engines": { "node": "^22.13.0 || >=24.11.0" },
+  "files": ["dist"],
+  "main": "./dist/index.cjs",
+  "types": "./dist/index.d.cts",
+  "exports": {
+    ".": {
+      "import": { "types": "./dist/index.d.ts", "default": "./dist/index.js" },
+      "require": { "types": "./dist/index.d.cts", "default": "./dist/index.cjs" }
+    },
+    "./package.json": "./package.json"
+  },
+  "peerDependencies": { "typeorm": "^0.3.20 || ^1.0.0" },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "vitest run --project unit --passWithNoTests",
+    "test:integration": "vitest run --project integration --passWithNoTests",
+    "build": "tsup",
+    "lint:package": "publint --strict && attw --pack ."
+  }
+}
