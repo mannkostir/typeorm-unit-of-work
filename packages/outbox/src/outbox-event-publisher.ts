@@ -19,7 +19,7 @@ export class OutboxEventPublisher implements DomainEventPublisher {
   constructor(options: OutboxEventPublisherOptions) {
     const resolved = resolveOutboxOptions(options);
     this.#inner = resolved.inner;
-    this.#writer = new OutboxWriter(resolved.table);
+    this.#writer = new OutboxWriter(resolved.table, resolved.rows);
   }
 
   register<Event extends object>(eventClass: EventClass<Event>, mapping: OutboxEventMapping<Event>): void {
