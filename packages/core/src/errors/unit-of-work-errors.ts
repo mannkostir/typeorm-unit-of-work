@@ -79,3 +79,11 @@ export class TransactionLeftOpenError extends UnitOfWorkError {
     );
   }
 }
+
+export class AggregateSavedDuringCommitError extends UnitOfWorkError {
+  constructor(readonly aggregateName: string) {
+    super(
+      `${aggregateName} was saved while its unit of work was committing, after the before-commit events had been dispatched, so its domain events could never be published; the save was rejected. Save aggregates from a before-commit handler on the publisher, not from a TypeORM transaction subscriber.`,
+    );
+  }
+}

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  AggregateSavedDuringCommitError,
   ConcurrentSavepointError,
   ConnectionAlreadyInTransactionError,
   DataSourceNotInitializedError,
@@ -71,6 +72,12 @@ describe('unit of work errors', () => {
   it('explains that a transaction still open after its commit was rolled back', () => {
     expect(new TransactionLeftOpenError().message).toBe(
       'The transaction was still open after the unit of work committed, so whatever remained open was rolled back. A savepoint was left unreleased, for example by a nested uow.run() that was not awaited or whose OpenSavepointAtCommitError was caught; check which data was stored, and await every nested uow.run() before the enclosing work returns.',
+    );
+  });
+
+  it('names the aggregate saved during commit and where to save it instead', () => {
+    expect(new AggregateSavedDuringCommitError('Order').message).toBe(
+      'Order was saved while its unit of work was committing, after the before-commit events had been dispatched, so its domain events could never be published; the save was rejected. Save aggregates from a before-commit handler on the publisher, not from a TypeORM transaction subscriber.',
     );
   });
 });
