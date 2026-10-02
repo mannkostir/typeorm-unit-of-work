@@ -34,8 +34,10 @@ jobs:
           core_version=$(node -p "require('./packages/core/package.json').version")
           adapter_version=$(node -p "require('./packages/nestjs/package.json').version")
           adapter_peer=$(node -p "require('./packages/nestjs/package.json').peerDependencies['typeorm-unit-of-work']")
-          if [ "$core_version" != "$adapter_version" ] || [ "$adapter_peer" != "$core_version" ]; then
-            echo "::error::Core $core_version, adapter $adapter_version and the adapter's core peer $adapter_peer must be the same version. Fix the prepare commit, delete this Release, and publish a new one."
+          outbox_version=$(node -p "require('./packages/outbox/package.json').version")
+          outbox_peer=$(node -p "require('./packages/outbox/package.json').peerDependencies['typeorm-unit-of-work']")
+          if [ "$core_version" != "$adapter_version" ] || [ "$adapter_peer" != "$core_version" ] || [ "$outbox_version" != "$core_version" ] || [ "$outbox_peer" != "$core_version" ]; then
+            echo "::error::Core $core_version, adapter $adapter_version, outbox $outbox_version and the core peers of adapter ($adapter_peer) and outbox ($outbox_peer) must be the same version. Fix the prepare commit, delete this Release, and publish a new one."
             exit 1
           fi
           if [ "$TAG" != "v$core_version" ]; then
@@ -58,10 +60,10 @@ jobs:
             echo "::error::Version $core_version needs the Release's pre-release box set to $expected_prerelease, but it is $PRERELEASE. Delete this Release and publish a new one from tag $TAG with the pre-release box set to $expected_prerelease."
             exit 1
           fi
-          for name in typeorm-unit-of-work typeorm-unit-of-work-nestjs; do
+          for name in typeorm-unit-of-work typeorm-unit-of-work-nestjs typeorm-unit-of-work-outbox; do
             if npm view "$name@$core_version" version >"$RUNNER_TEMP/npm-view.out" 2>"$RUNNER_TEMP/npm-view.err"; then
               if [ -s "$RUNNER_TEMP/npm-view.out" ]; then
-                echo "::error::$name@$core_version is already published. Bump the version in both packages."
+                echo "::error::$name@$core_version is already published. Bump the version in all three packages."
                 exit 1
               fi
             elif ! grep -q E404 "$RUNNER_TEMP/npm-view.err"; then
@@ -97,7 +99,7 @@ jobs:
           DIST_TAG: ${{ needs.guard.outputs.dist-tag }}
         run: |
           set -euo pipefail
-          for workspace in packages/core packages/nestjs; do
+          for workspace in packages/core packages/nestjs packages/outbox; do
             if [ "$DIST_TAG" = next ]; then
               npm stage publish --workspace "$workspace" --ignore-scripts --loglevel verbose --tag next
             else
