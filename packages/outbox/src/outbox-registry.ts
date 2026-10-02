@@ -11,7 +11,7 @@ export class OutboxRegistry {
   readonly #mappersByPrototype = new Map<unknown, RowMapper>();
 
   register<Event extends object>(eventClass: EventClass<Event>, mapping: OutboxEventMapping<Event>): void {
-    assertValidMapping(mapping);
+    assertValidMapping(eventClass.name, mapping);
     const prototype: unknown = eventClass.prototype;
     if (this.#mappersByPrototype.has(prototype)) {
       throw new DuplicateOutboxRegistrationError(eventClass.name);
@@ -41,8 +41,9 @@ export class OutboxRegistry {
   }
 }
 
-function assertValidMapping<Event extends object>(mapping: OutboxEventMapping<Event>): void {
-  const columnRule = `must be a non-empty string of at most ${maxColumnCharacters} characters`;
+function assertValidMapping<Event extends object>(eventName: string, mapping: OutboxEventMapping<Event>): void {
+  const registering = `(registering ${eventName})`;
+  const columnRule = `must be a non-empty string of at most ${maxColumnCharacters} characters ${registering}`;
   if (!fitsColumn(mapping.type)) {
     throw new InvalidOutboxOptionsError('type', columnRule);
   }
@@ -50,9 +51,9 @@ function assertValidMapping<Event extends object>(mapping: OutboxEventMapping<Ev
     throw new InvalidOutboxOptionsError('aggregateType', columnRule);
   }
   if (typeof mapping.aggregateId !== 'function') {
-    throw new InvalidOutboxOptionsError('aggregateId', 'must be a function that returns the aggregate id of the event');
+    throw new InvalidOutboxOptionsError('aggregateId', `must be a function that returns the aggregate id of the event ${registering}`);
   }
   if (mapping.payload !== undefined && typeof mapping.payload !== 'function') {
-    throw new InvalidOutboxOptionsError('payload', 'must be a function that returns the payload of the event');
+    throw new InvalidOutboxOptionsError('payload', `must be a function that returns the payload of the event ${registering}`);
   }
 }

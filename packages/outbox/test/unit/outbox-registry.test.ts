@@ -69,13 +69,13 @@ describe('OutboxRegistry', () => {
 
   it('rejects an empty type', () => {
     expect(() => registry.register(OrderShipped, { ...shippedMapping, type: '' })).toThrow(
-      new InvalidOutboxOptionsError('type', 'must be a non-empty string of at most 255 characters'),
+      new InvalidOutboxOptionsError('type', 'must be a non-empty string of at most 255 characters (registering OrderShipped)'),
     );
   });
 
   it('rejects an aggregate type longer than 255 characters', () => {
     expect(() => registry.register(OrderShipped, { ...shippedMapping, aggregateType: 'a'.repeat(256) })).toThrow(
-      new InvalidOutboxOptionsError('aggregateType', 'must be a non-empty string of at most 255 characters'),
+      new InvalidOutboxOptionsError('aggregateType', 'must be a non-empty string of at most 255 characters (registering OrderShipped)'),
     );
   });
 
@@ -83,7 +83,7 @@ describe('OutboxRegistry', () => {
     const mapping = { ...shippedMapping, aggregateId: 'orderId' } as unknown as OutboxEventMapping<OrderShipped>;
 
     expect(() => registry.register(OrderShipped, mapping)).toThrow(
-      new InvalidOutboxOptionsError('aggregateId', 'must be a function that returns the aggregate id of the event'),
+      new InvalidOutboxOptionsError('aggregateId', 'must be a function that returns the aggregate id of the event (registering OrderShipped)'),
     );
   });
 
@@ -91,7 +91,7 @@ describe('OutboxRegistry', () => {
     const mapping = { ...shippedMapping, payload: {} } as unknown as OutboxEventMapping<OrderShipped>;
 
     expect(() => registry.register(OrderShipped, mapping)).toThrow(
-      new InvalidOutboxOptionsError('payload', 'must be a function that returns the payload of the event'),
+      new InvalidOutboxOptionsError('payload', 'must be a function that returns the payload of the event (registering OrderShipped)'),
     );
   });
 });
