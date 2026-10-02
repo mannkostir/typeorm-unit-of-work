@@ -1,6 +1,6 @@
 # typeorm-unit-of-work
 
-Ambient TypeORM transactions and aggregate domain events, published before and after commit. Open a unit of work once, and every repository you obtain from it inside the callback, at any call depth, joins the same transaction through `AsyncLocalStorage`. Aggregates you save are collected, and their domain events are delivered to handlers inside the transaction (before commit) and after it has committed. The core is framework-agnostic; an optional NestJS adapter is published separately. It supports TypeORM 0.3 and 1.x.
+Ambient TypeORM transactions and aggregate domain events, published before and after commit. Open a unit of work once, and every repository you obtain from it inside the callback, at any call depth, joins the same transaction through `AsyncLocalStorage`. Aggregates you save are collected, and their domain events are delivered to handlers inside the transaction (before commit) and after it has committed. The core is framework-agnostic; an optional NestJS adapter and an optional transactional outbox writer are published separately. It supports TypeORM 0.3 and 1.x.
 
 Status: 0.1.1 — pre-release; the API may change before 1.0
 
@@ -257,10 +257,10 @@ Create the table with the bundled migration, and add it to your DataSource's `mi
 ```ts
 import { createOutboxMigration } from 'typeorm-unit-of-work-outbox';
 
-export const CreateOutbox = createOutboxMigration({ timestamp: 1759363200000 });
+export const CreateOutbox = createOutboxMigration({ timestamp: 1759363200000, table: 'outbox' });
 ```
 
-The migration creates the table only. Your relay's setup creates the publication and the replication slot.
+The migration's `table` must match the publisher's `table`; for `schema.table` the schema must already exist, and names are quoted, so they are case-sensitive. The migration creates the table only. Your relay's setup creates the publication and the replication slot.
 
 | Column | Type | Value |
 |---|---|---|
@@ -268,7 +268,7 @@ The migration creates the table only. Your relay's setup creates the publication
 | `aggregatetype` | `varchar(255)` | `aggregateType` |
 | `aggregateid` | `varchar(255)` | `aggregateId(event)`; relays use it as the message key |
 | `type` | `varchar(255)` | `type` |
-| `payload` | `jsonb`, nullable | `payload(event)`, or the event itself when `payload` is omitted; `null` is a tombstone |
+| `payload` | `jsonb`, nullable | `payload(event)`, or the event itself when `payload` is omitted; a `null` payload is stored as SQL `NULL`, and whether it is published as a tombstone depends on the relay (Debezium: `route.tombstone.on.empty.payload`) |
 
 | Option | Default | Notes |
 |---|---|---|
