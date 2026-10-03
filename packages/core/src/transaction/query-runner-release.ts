@@ -1,32 +1,53 @@
 import type { QueryRunner } from 'typeorm';
-import { TransactionLeftOpenError, TransactionRollbackError } from '../errors/unit-of-work-errors';
+import {
+  ConnectionDiscardError,
+  TransactionLeftOpenError,
+  TransactionRollbackError,
+} from '../errors/unit-of-work-errors';
 import type { TransactionScope } from '../scope/transaction-scope';
+import type { ConnectionDiscard } from '../unit-of-work-options';
 
-export async function releaseSettled(scope: TransactionScope): Promise<void> {
-  await scope.awaitSavepointStartsOnRunner();
-  if (scope.queryRunner.isTransactionActive) {
-    await releaseAbandoned(scope, new TransactionLeftOpenError());
-  }
-  await scope.queryRunner.release();
-}
+export class QueryRunnerRelease {
+  constructor(private readonly discardConnection: ConnectionDiscard) {}
 
-export async function releaseAbandoned(scope: TransactionScope, failure: unknown): Promise<never> {
-  const { queryRunner } = scope;
-  try {
+  async settled(scope: TransactionScope): Promise<void> {
     await scope.awaitSavepointStartsOnRunner();
-    await rollBackLeftoverTransaction(queryRunner, failure);
-  } finally {
-    await queryRunner.release();
-  }
-  throw failure;
-}
-
-async function rollBackLeftoverTransaction(queryRunner: QueryRunner, failure: unknown): Promise<void> {
-  try {
-    while (queryRunner.isTransactionActive) {
-      await queryRunner.rollbackTransaction();
+    if (scope.queryRunner.isTransactionActive) {
+      await this.abandoned(scope, new TransactionLeftOpenError());
     }
-  } catch (rollbackError) {
-    throw new TransactionRollbackError(failure, rollbackError);
+    await scope.queryRunner.release();
+  }
+
+  async abandoned(scope: TransactionScope, failure: unknown): Promise<never> {
+    const { queryRunner } = scope;
+    try {
+      await scope.awaitSavepointStartsOnRunner();
+      await this.#rollBackOrDiscard(queryRunner, failure);
+    } finally {
+      await queryRunner.release();
+    }
+    throw failure;
+  }
+
+  async #rollBackOrDiscard(queryRunner: QueryRunner, failure: unknown): Promise<void> {
+    try {
+      while (queryRunner.isTransactionActive) {
+        await queryRunner.rollbackTransaction();
+      }
+    } catch (rollbackError) {
+      const rollbackFailure = new TransactionRollbackError(failure, rollbackError);
+      if (queryRunner.isTransactionActive) {
+        await this.#discard(queryRunner, rollbackFailure);
+      }
+      throw rollbackFailure;
+    }
+  }
+
+  async #discard(queryRunner: QueryRunner, rollbackFailure: TransactionRollbackError): Promise<void> {
+    try {
+      await this.discardConnection(queryRunner, rollbackFailure);
+    } catch (discardError) {
+      throw new ConnectionDiscardError(rollbackFailure, discardError);
+    }
   }
 }

@@ -7,7 +7,7 @@ import type { ScopeRegistry } from '../scope/scope-registry';
 import type { ScopeStore } from '../scope/scope-store';
 import { TransactionScope } from '../scope/transaction-scope';
 import type { ResolvedRunOptions } from '../unit-of-work-options';
-import { releaseAbandoned, releaseSettled } from './query-runner-release';
+import type { QueryRunnerRelease } from './query-runner-release';
 import { abortOnFailure, abortScope } from './scope-abort';
 
 export interface RootTransactionDependencies {
@@ -17,6 +17,7 @@ export interface RootTransactionDependencies {
   readonly publisher: DomainEventPublisher;
   readonly onAfterCommitError: AfterCommitErrorHandler;
   readonly maxEventRounds: number;
+  readonly release: QueryRunnerRelease;
 }
 
 interface Settlement<Result> {
@@ -38,16 +39,16 @@ export class RootTransaction {
     work: TransactionalWork<Result>,
     options: ResolvedRunOptions<Result>,
   ): Promise<Settlement<Result>> {
-    const { dataSource } = this.dependencies;
+    const { dataSource, release } = this.dependencies;
     const queryRunner = dataSource.createQueryRunner();
     if (queryRunner.isTransactionActive) {
       throw new ConnectionAlreadyInTransactionError(dataSource.options.type);
     }
     const scope = new TransactionScope(queryRunner);
     const settlement = await this.#settleThenClose(scope, work, options).catch((failure: unknown) =>
-      releaseAbandoned(scope, failure),
+      release.abandoned(scope, failure),
     );
-    await releaseSettled(scope);
+    await release.settled(scope);
     return settlement;
   }
 

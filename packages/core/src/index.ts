@@ -2,6 +2,7 @@ export {
   AggregateSavedDuringCommitError,
   ConcurrentSavepointError,
   ConnectionAlreadyInTransactionError,
+  ConnectionDiscardError,
   DataSourceNotInitializedError,
   EventCascadeLimitExceededError,
   InvalidUnitOfWorkOptionsError,

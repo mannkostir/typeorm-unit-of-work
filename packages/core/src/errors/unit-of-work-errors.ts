@@ -87,3 +87,15 @@ export class AggregateSavedDuringCommitError extends UnitOfWorkError {
     );
   }
 }
+
+export class ConnectionDiscardError extends UnitOfWorkError {
+  constructor(
+    readonly rollbackFailure: TransactionRollbackError,
+    discardError: unknown,
+  ) {
+    super(
+      'The transaction could not be rolled back and discardConnection failed, so the connection was released to the pool with its transaction still open. The rollback failure is in rollbackFailure and the discardConnection error is the cause.',
+      { cause: discardError },
+    );
+  }
+}

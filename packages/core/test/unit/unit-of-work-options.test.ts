@@ -1,6 +1,6 @@
-import { DataSource } from 'typeorm';
+import { DataSource, type QueryRunner } from 'typeorm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { DataSourceNotInitializedError, InvalidUnitOfWorkOptionsError } from '../../src/errors/unit-of-work-errors';
+import { DataSourceNotInitializedError, InvalidUnitOfWorkOptionsError, TransactionRollbackError } from '../../src/errors/unit-of-work-errors';
 import type { DomainEventPublisher } from '../../src/events/domain-event-publisher';
 import {
   resolveRunOptions,
@@ -15,6 +15,10 @@ const publisher: DomainEventPublisher = {
 };
 
 const ignoreAfterCommitError = (): void => undefined;
+
+const unusedQueryRunner = {} as QueryRunner;
+
+const unusedRollbackFailure = new TransactionRollbackError(undefined, new Error('rollback failed'));
 
 describe('resolveUnitOfWorkOptions', () => {
   const dataSource = new DataSource({ type: 'better-sqlite3', database: ':memory:' });
@@ -68,6 +72,29 @@ describe('resolveUnitOfWorkOptions', () => {
 
   it('defaults to 100 event rounds and lenient scope access', () => {
     expect(resolveUnitOfWorkOptions(valid)).toMatchObject({ maxEventRounds: 100, strict: false });
+  });
+
+  it.each([
+    ['null', null],
+    ['a string', 'terminate'],
+  ])('rejects a discardConnection that is %s', (_, discardConnection) => {
+    const options = { ...valid, discardConnection } as unknown as UnitOfWorkOptions;
+
+    expect(() => resolveUnitOfWorkOptions(options)).toThrow(
+      new InvalidUnitOfWorkOptionsError('discardConnection', 'must be a function that receives (queryRunner, failure)'),
+    );
+  });
+
+  it('keeps the given discardConnection', () => {
+    const discardConnection = async (): Promise<void> => undefined;
+
+    expect(resolveUnitOfWorkOptions({ ...valid, discardConnection }).discardConnection).toBe(discardConnection);
+  });
+
+  it('leaves the connection alone by default', async () => {
+    const { discardConnection } = resolveUnitOfWorkOptions(valid);
+
+    await expect(discardConnection(unusedQueryRunner, unusedRollbackFailure)).resolves.toBeUndefined();
   });
 });
 

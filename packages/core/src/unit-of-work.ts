@@ -8,6 +8,7 @@ import type { PropagationStrategy, TransactionalWork } from './propagation/propa
 import { ScopeStore } from './scope/scope-store';
 import type { TransactionScope } from './scope/transaction-scope';
 import { eventCollectionFor } from './subscriber/event-collection';
+import { QueryRunnerRelease } from './transaction/query-runner-release';
 import { RootTransaction } from './transaction/root-transaction';
 import { SavepointTransaction } from './transaction/savepoint-transaction';
 import {
@@ -34,6 +35,7 @@ export class UnitOfWork {
       publisher: this.settings.publisher,
       onAfterCommitError: this.settings.onAfterCommitError,
       maxEventRounds: this.settings.maxEventRounds,
+      release: new QueryRunnerRelease(this.settings.discardConnection),
     });
     this.strategies = {
       join: new JoinPropagation(this.store, root),
