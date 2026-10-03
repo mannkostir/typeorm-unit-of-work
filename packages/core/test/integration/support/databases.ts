@@ -15,6 +15,19 @@ export const postgres: TestDatabase = {
     initialize({ type: 'postgres', url: inject('postgresUrl'), entities, synchronize: true, dropSchema: true }),
 };
 
+export const postgresWithOneConnection: TestDatabase = {
+  name: 'postgres with one pooled connection',
+  open: () =>
+    initialize({
+      type: 'postgres',
+      url: inject('postgresUrl'),
+      entities,
+      synchronize: true,
+      dropSchema: true,
+      extra: { max: 1 },
+    }),
+};
+
 export const sqlite: TestDatabase = {
   name: 'sqlite',
   open: () => initialize({ type: 'better-sqlite3', database: ':memory:', entities, synchronize: true }),
