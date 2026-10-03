@@ -9,6 +9,7 @@ describe('public API', () => {
       'AggregateSavedDuringCommitError',
       'ConcurrentSavepointError',
       'ConnectionAlreadyInTransactionError',
+      'ConnectionDiscardError',
       'DataSourceNotInitializedError',
       'EventCascadeLimitExceededError',
       'InProcessEventPublisher',

@@ -1,10 +1,16 @@
 import type { DataSource, QueryRunner } from 'typeorm';
-import { DataSourceNotInitializedError, InvalidUnitOfWorkOptionsError } from './errors/unit-of-work-errors';
+import {
+  DataSourceNotInitializedError,
+  InvalidUnitOfWorkOptionsError,
+  type TransactionRollbackError,
+} from './errors/unit-of-work-errors';
 import type { AfterCommitErrorHandler, DomainEventPublisher } from './events/domain-event-publisher';
 
 export type IsolationLevel = NonNullable<Parameters<QueryRunner['startTransaction']>[0]>;
 
 export type Propagation = 'join' | 'new' | 'nested';
+
+export type ConnectionDiscard = (queryRunner: QueryRunner, failure: TransactionRollbackError) => Promise<void>;
 
 export interface UnitOfWorkOptions {
   readonly dataSource: DataSource;
@@ -12,6 +18,7 @@ export interface UnitOfWorkOptions {
   readonly onAfterCommitError: AfterCommitErrorHandler;
   readonly maxEventRounds?: number;
   readonly strict?: boolean;
+  readonly discardConnection?: ConnectionDiscard;
 }
 
 export interface RunOptions<Result> {
@@ -26,6 +33,7 @@ export interface ResolvedUnitOfWorkOptions {
   readonly onAfterCommitError: AfterCommitErrorHandler;
   readonly maxEventRounds: number;
   readonly strict: boolean;
+  readonly discardConnection: ConnectionDiscard;
 }
 
 export interface ResolvedRunOptions<Result> {
@@ -37,6 +45,8 @@ export interface ResolvedRunOptions<Result> {
 const propagations: readonly Propagation[] = ['join', 'new', 'nested'];
 
 const defaultMaxEventRounds = 100;
+
+const keepConnection: ConnectionDiscard = async () => undefined;
 
 export function resolveUnitOfWorkOptions(options: UnitOfWorkOptions): ResolvedUnitOfWorkOptions {
   if (!isDataSource(options.dataSource)) {
@@ -58,12 +68,16 @@ export function resolveUnitOfWorkOptions(options: UnitOfWorkOptions): ResolvedUn
   if (!Number.isInteger(maxEventRounds) || maxEventRounds < 1) {
     throw new InvalidUnitOfWorkOptionsError('maxEventRounds', 'must be an integer of at least 1');
   }
+  if (options.discardConnection !== undefined && typeof options.discardConnection !== 'function') {
+    throw new InvalidUnitOfWorkOptionsError('discardConnection', 'must be a function that receives (queryRunner, failure)');
+  }
   return {
     dataSource: options.dataSource,
     publisher: options.publisher,
     onAfterCommitError: options.onAfterCommitError,
     maxEventRounds,
     strict: options.strict ?? false,
+    discardConnection: options.discardConnection ?? keepConnection,
   };
 }
 

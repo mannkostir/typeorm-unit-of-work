@@ -3,6 +3,7 @@ import {
   AggregateSavedDuringCommitError,
   ConcurrentSavepointError,
   ConnectionAlreadyInTransactionError,
+  ConnectionDiscardError,
   DataSourceNotInitializedError,
   EventCascadeLimitExceededError,
   InvalidUnitOfWorkOptionsError,
@@ -78,6 +79,23 @@ describe('unit of work errors', () => {
   it('names the aggregate saved during commit and where to save it instead', () => {
     expect(new AggregateSavedDuringCommitError('Order').message).toBe(
       'Order was saved while its unit of work was committing, after the before-commit events had been dispatched, so its domain events could never be published; the save was rejected. Save aggregates from a before-commit handler on the publisher, not from a TypeORM transaction subscriber.',
+    );
+  });
+
+  it('keeps the rollback failure and the discard error when discarding the connection fails', () => {
+    const rollbackFailure = new TransactionRollbackError(new Error('work failed'), new Error('rollback failed'));
+    const discardError = new Error('terminate failed');
+
+    const error = new ConnectionDiscardError(rollbackFailure, discardError);
+
+    expect(error).toMatchObject({ rollbackFailure, cause: discardError });
+  });
+
+  it('explains that a connection that could not be discarded went back to the pool', () => {
+    const rollbackFailure = new TransactionRollbackError(undefined, new Error('rollback failed'));
+
+    expect(new ConnectionDiscardError(rollbackFailure, new Error('terminate failed')).message).toBe(
+      'The transaction could not be rolled back and discardConnection failed, so the connection was released to the pool with its transaction still open. The rollback failure is in rollbackFailure and the discardConnection error is the cause.',
     );
   });
 });
