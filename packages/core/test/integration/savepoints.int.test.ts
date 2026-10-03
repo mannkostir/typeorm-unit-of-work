@@ -18,6 +18,8 @@ describe.each(databases)('nested savepoints on $name', (database) => {
   let dataSource: DataSource;
   let queryRunners: QueryRunnerWatch;
   let published: object[];
+  let beforeCommitPublished: object[];
+  let beforeCommitCalls: number;
   let uow: UnitOfWork;
   let danglingRuns: Promise<unknown>[];
 
@@ -162,7 +164,13 @@ describe.each(databases)('nested savepoints on $name', (database) => {
     dataSource = await database.open();
     queryRunners = watchQueryRunners(dataSource);
     published = [];
+    beforeCommitPublished = [];
+    beforeCommitCalls = 0;
     const publisher = new InProcessEventPublisher();
+    publisher.onBeforeCommit(OrderPlaced, (event) => {
+      beforeCommitCalls += 1;
+      beforeCommitPublished.push(event);
+    });
     publisher.onAfterCommit(OrderPlaced, (event) => {
       published.push(event);
     });
@@ -335,6 +343,47 @@ describe.each(databases)('nested savepoints on $name', (database) => {
     });
 
     expect(await storedIds()).toEqual(['o-3', 'o-4']);
+  });
+
+  it('publishes events after commit in the order raised across an adopted savepoint', async () => {
+    await uow.run(async () => {
+      await place('o-1');
+      await placeNested('o-2');
+      await place('o-3');
+    });
+
+    expect(published).toEqual([new OrderPlaced('o-1'), new OrderPlaced('o-2'), new OrderPlaced('o-3')]);
+  });
+
+  it('hands events to before-commit handlers in the order raised across an adopted savepoint', async () => {
+    await uow.run(async () => {
+      await place('o-1');
+      await placeNested('o-2');
+      await place('o-3');
+    });
+
+    expect(beforeCommitPublished).toEqual([new OrderPlaced('o-1'), new OrderPlaced('o-2'), new OrderPlaced('o-3')]);
+  });
+
+  it('calls no after-commit handler when commitWhen rejects a root run', async () => {
+    await uow.run(() => place('o-1'), { commitWhen: () => false });
+
+    expect(published).toEqual([]);
+  });
+
+  it('calls no before-commit handler when commitWhen rejects a root run', async () => {
+    await uow.run(() => place('o-1'), { commitWhen: () => false });
+
+    expect(beforeCommitCalls).toBe(0);
+  });
+
+  it('releases every query runner when commitWhen rejects a root run', async () => {
+    await uow.run(() => place('o-1'), { commitWhen: () => false });
+
+    expect({
+      unreleased: queryRunners.unreleasedCount(),
+      releasedInsideTransaction: queryRunners.releasedInsideTransaction(),
+    }).toEqual({ unreleased: 0, releasedInsideTransaction: false });
   });
 
   it('releases every query runner', async () => {
