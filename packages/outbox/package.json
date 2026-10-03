@@ -1,6 +1,6 @@
 {
   "name": "typeorm-unit-of-work-outbox",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "description": "Transactional outbox writer for typeorm-unit-of-work: domain events stored as Debezium-compatible outbox rows in the same transaction",
   "license": "MIT",
   "author": "mannkostir",
@@ -50,7 +50,7 @@
   },
   "peerDependencies": {
     "typeorm": "^0.3.20 || ^1.0.0",
-    "typeorm-unit-of-work": "0.1.1"
+    "typeorm-unit-of-work": "0.2.0"
   },
   "scripts": {
     "typecheck": "tsc -p tsconfig.json",
