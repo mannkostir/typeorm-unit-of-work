@@ -3,7 +3,7 @@ import { CqrsModule, EventBus, EventsHandler, type IEventHandler } from '@nestjs
 import { Test, type TestingModule } from '@nestjs/testing';
 import { DataSource, EntitySchema } from 'typeorm';
 import { AggregateRoot, UnitOfWork } from 'typeorm-unit-of-work';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { CqrsEventBusPublisher } from '../src/cqrs-event-bus-publisher';
 import { Transactional } from '../src/transactional.decorator';
 import { TransactionalBindingError } from '../src/transactional-binding-error';
@@ -213,5 +213,48 @@ describe('UnitOfWorkModule bootstrap checks', () => {
     await expect(
       compile({ imports: [DatabaseModule, CqrsModule.forRoot(), unitOfWorkModule()], controllers: [OrdersController] }),
     ).rejects.toBeInstanceOf(TransactionalBindingError);
+  });
+});
+
+describe('UnitOfWorkModule with a useExisting alias', () => {
+  const ALIAS = 'ORDER_SERVICE_ALIAS';
+  let moduleRef: TestingModule;
+  let dataSource: DataSource;
+
+  beforeEach(async () => {
+    moduleRef = await compile({
+      imports: [DatabaseModule, CqrsModule.forRoot(), unitOfWorkModule()],
+      providers: [OrderService, { provide: ALIAS, useExisting: OrderService }],
+    });
+    dataSource = moduleRef.get<DataSource>(DATA_SOURCE);
+  });
+
+  afterEach(async () => {
+    await moduleRef.close();
+    await dataSource.destroy();
+  });
+
+  it('resolves both tokens to the same instance', () => {
+    expect(moduleRef.get(ALIAS)).toBe(moduleRef.get(OrderService));
+  });
+
+  it('opens exactly one unit of work run per call through the alias', async () => {
+    const run = vi.spyOn(moduleRef.get(UnitOfWork), 'run');
+
+    await moduleRef.get<OrderService>(ALIAS).place('o-1');
+
+    expect(run).toHaveBeenCalledTimes(1);
+  });
+
+  it('opens exactly one unit of work run per call through the class token', async () => {
+    const run = vi.spyOn(moduleRef.get(UnitOfWork), 'run');
+
+    await moduleRef.get(OrderService).place('o-1');
+
+    expect(run).toHaveBeenCalledTimes(1);
+  });
+
+  it('runs a method called through the alias inside a transaction', async () => {
+    expect(await moduleRef.get<OrderService>(ALIAS).managerInside()).not.toBe(dataSource.manager);
   });
 });
