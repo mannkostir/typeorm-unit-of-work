@@ -46,6 +46,18 @@ describe('unit of work errors', () => {
     expect(error.message).toBe('Invalid unit of work option "maxEventRounds": must be an integer of at least 1');
   });
 
+  it('exposes the invalid option name', () => {
+    const error = new InvalidUnitOfWorkOptionsError('maxEventRounds', 'must be an integer of at least 1');
+
+    expect(error.option).toBe('maxEventRounds');
+  });
+
+  it('exposes the rounds and last event names of the exceeded cascade', () => {
+    const error = new EventCascadeLimitExceededError(3, ['OrderShipped', 'InvoiceIssued']);
+
+    expect(error).toMatchObject({ rounds: 3, lastRoundEventNames: ['OrderShipped', 'InvoiceIssued'] });
+  });
+
   it('tells the caller which operation needs a unit of work', () => {
     expect(new ScopeNotActiveError('uow.track()').message).toBe(
       'uow.track() needs an active unit of work; call it inside uow.run()',

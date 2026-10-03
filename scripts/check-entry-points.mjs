@@ -1,6 +1,7 @@
 import { readdir, readFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import { join } from 'node:path';
+import { importsModuleAtRuntime } from './runtime-imports.mjs';
 
 const require = createRequire(import.meta.url);
 
@@ -28,11 +29,10 @@ for (const { name, exportName, distDirectory, forbiddenImports } of packages) {
 }
 
 async function assertNoRuntimeImport(directory, moduleName) {
-  const files = (await readdir(directory)).filter((file) => /\.(c?js)$/.test(file));
-  const pattern = new RegExp(`(from\\s*|require\\()\\s*['"]${moduleName}['"]`);
+  const files = (await readdir(directory)).filter((file) => /\.(c|m)?js$/.test(file));
   for (const file of files) {
     const source = await readFile(join(directory, file), 'utf8');
-    if (pattern.test(source)) {
+    if (importsModuleAtRuntime(source, moduleName)) {
       throw new Error(`${directory}/${file} imports ${moduleName} at runtime`);
     }
   }
