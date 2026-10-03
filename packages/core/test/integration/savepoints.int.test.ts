@@ -19,7 +19,6 @@ describe.each(databases)('nested savepoints on $name', (database) => {
   let queryRunners: QueryRunnerWatch;
   let published: object[];
   let beforeCommitPublished: object[];
-  let beforeCommitCalls: number;
   let uow: UnitOfWork;
   let danglingRuns: Promise<unknown>[];
 
@@ -165,10 +164,8 @@ describe.each(databases)('nested savepoints on $name', (database) => {
     queryRunners = watchQueryRunners(dataSource);
     published = [];
     beforeCommitPublished = [];
-    beforeCommitCalls = 0;
     const publisher = new InProcessEventPublisher();
     publisher.onBeforeCommit(OrderPlaced, (event) => {
-      beforeCommitCalls += 1;
       beforeCommitPublished.push(event);
     });
     publisher.onAfterCommit(OrderPlaced, (event) => {
@@ -374,7 +371,7 @@ describe.each(databases)('nested savepoints on $name', (database) => {
   it('calls no before-commit handler when commitWhen rejects a root run', async () => {
     await uow.run(() => place('o-1'), { commitWhen: () => false });
 
-    expect(beforeCommitCalls).toBe(0);
+    expect(beforeCommitPublished).toEqual([]);
   });
 
   it('releases every query runner when commitWhen rejects a root run', async () => {

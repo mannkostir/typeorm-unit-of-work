@@ -38,7 +38,7 @@ for (const source of ignored) {
 }
 
 test('treats dots in the module name literally', () => {
-  assert.equal(importsModuleAtRuntime(`import 'axbyc';`, 'a.b'), false);
+  assert.equal(importsModuleAtRuntime(`import 'axb';`, 'a.b'), false);
 });
 
 test('treats plus in the module name literally', () => {

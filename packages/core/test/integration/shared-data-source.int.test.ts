@@ -52,7 +52,7 @@ describe.each(databases)('units of work sharing a data source on $name', (databa
     });
   });
 
-  it('commits both runs and routes each run events to its own publisher', async () => {
+  it("commits both runs and routes each run's events to its own publisher", async () => {
     await first.run(() => placeOrder(first, 'o-1'));
     await second.run(() => placeOrder(second, 'o-2'));
 
@@ -99,6 +99,9 @@ describe.each(databases)('units of work sharing a data source on $name', (databa
       })
       .catch(() => undefined);
 
-    expect(queryRunners.unreleasedCount()).toBe(0);
+    expect({
+      unreleased: queryRunners.unreleasedCount(),
+      releasedInsideTransaction: queryRunners.releasedInsideTransaction(),
+    }).toEqual({ unreleased: 0, releasedInsideTransaction: false });
   });
 });
