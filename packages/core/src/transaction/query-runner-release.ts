@@ -36,7 +36,9 @@ export class QueryRunnerRelease {
       }
     } catch (rollbackError) {
       const rollbackFailure = new TransactionRollbackError(failure, rollbackError);
-      await this.#discard(queryRunner, rollbackFailure);
+      if (queryRunner.isTransactionActive) {
+        await this.#discard(queryRunner, rollbackFailure);
+      }
       throw rollbackFailure;
     }
   }

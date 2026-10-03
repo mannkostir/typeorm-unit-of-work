@@ -50,6 +50,13 @@ describe.each(databases)('discarding the connection after a failed rollback on $
     };
   };
 
+  const leftoverRollbackFailingAfterItCompletes = () => ({
+    ...rollbackFailingOnce(),
+    afterTransactionRollback: () => {
+      throw new Error('after rollback failed');
+    },
+  });
+
   const failingRun = (uow: UnitOfWork, failure: Error) =>
     uow.run(async () => {
       await uow.getRepository(Order).save(Order.place('o-1'));
@@ -112,6 +119,22 @@ describe.each(databases)('discarding the connection after a failed rollback on $
     await failingRun(unitOfWork(recordDiscard), new Error('work failed')).catch(() => undefined);
 
     expect(discarded).toEqual([]);
+  });
+
+  it('does not discard a connection whose rollback completed before an afterTransactionRollback subscriber failed', async () => {
+    dataSource.subscribers.push(leftoverRollbackFailingAfterItCompletes());
+
+    await failingRun(unitOfWork(recordDiscard), new Error('work failed')).catch(() => undefined);
+
+    expect(discarded).toEqual([]);
+  });
+
+  it('still rejects with the rollback failure when an afterTransactionRollback subscriber fails', async () => {
+    dataSource.subscribers.push(leftoverRollbackFailingAfterItCompletes());
+
+    const running = failingRun(unitOfWork(recordDiscard), new Error('work failed'));
+
+    await expect(running).rejects.toBeInstanceOf(TransactionRollbackError);
   });
 
   it('still rejects with the rollback failure and releases the runner without discardConnection', async () => {

@@ -25,7 +25,7 @@ Passed as the second argument of `uow.run(work, options)`, and to `@Transactiona
 
 ## `UnitOfWork`
 
-Members: `run(work, options?)`, `manager`, `getRepository(target)` and `track(aggregate)`. `work` receives a `TransactionContext` exposing `manager` and `getRepository`; the query runner is never exposed.
+Members: `run(work, options?)`, `manager`, `getRepository(target)` and `track(aggregate)`. `work` receives a `TransactionContext` exposing `manager` and `getRepository`; the query runner is never exposed to `work`.
 
 ## Errors
 
