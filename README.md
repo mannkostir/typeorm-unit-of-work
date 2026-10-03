@@ -4,7 +4,7 @@
 
 A Unit of Work for TypeORM. Open a transaction once and every repository below it joins, at any call depth, without passing an `EntityManager` around. Aggregates you save are collected, and their domain events are delivered inside the transaction before commit, and again once it has committed.
 
-Status: 0.1.1 — pre-release; the API may change before 1.0
+Status: 0.2.0 — pre-release; the API may change before 1.0
 
 ## Why
 
