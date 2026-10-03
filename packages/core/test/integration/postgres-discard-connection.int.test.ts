@@ -12,8 +12,13 @@ const terminateBackend: ConnectionDiscard = async (queryRunner) => {
   const connection = await queryRunner.connect();
   const closed = new Promise((resolve) => connection.once('end', resolve));
   await queryRunner.query('ROLLBACK').catch(() => undefined);
-  await queryRunner.query('SELECT pg_terminate_backend(pg_backend_pid())').catch(() => undefined);
-  await closed;
+  const terminationConfirmed = await queryRunner
+    .query('SELECT pg_terminate_backend(pg_backend_pid())')
+    .then(() => false)
+    .catch((error: { code?: string }) => error.code === '57P01');
+  if (terminationConfirmed) {
+    await closed;
+  }
 };
 
 describe('discarding a poisoned postgres connection', () => {

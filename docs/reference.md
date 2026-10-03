@@ -64,10 +64,15 @@ const uow = new UnitOfWork({
     const connection = await queryRunner.connect();
     const closed = new Promise((resolve) => connection.once('end', resolve));
     await queryRunner.query('ROLLBACK').catch(() => undefined);
-    await queryRunner.query('SELECT pg_terminate_backend(pg_backend_pid())').catch(() => undefined);
-    await closed;
+    const terminationConfirmed = await queryRunner
+      .query('SELECT pg_terminate_backend(pg_backend_pid())')
+      .then(() => false)
+      .catch((error: { code?: string }) => error.code === '57P01');
+    if (terminationConfirmed) {
+      await closed;
+    }
   },
 });
 ```
 
-`ROLLBACK` comes first because an aborted transaction ignores every other command until it ends. The terminate query is expected to fail, because it closes its own connection, and the hook then waits for the driver to report the connection closed; without that wait the pool can hand the dying connection to the next unit of work. This recipe is for Postgres only; other drivers need their own way to close the connection.
+`ROLLBACK` comes first because an aborted transaction ignores every other command until it ends. The terminate query is expected to fail with SQLSTATE `57P01`, because it closes its own connection. Postgres reports that before the socket closes, so the hook then waits for the driver to report the connection closed; without that wait the pool can hand the dying connection to the next unit of work. It waits only when Postgres confirms the termination, so it cannot hang when the terminate is refused. This recipe is for Postgres only; other drivers need their own way to close the connection.
