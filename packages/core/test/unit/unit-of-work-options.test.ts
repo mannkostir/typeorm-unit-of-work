@@ -58,6 +58,12 @@ describe('resolveUnitOfWorkOptions', () => {
     );
   });
 
+  it('names the rejected option on the thrown error', () => {
+    expect(() => resolveUnitOfWorkOptions({ ...valid, maxEventRounds: 0 })).toThrow(
+      expect.objectContaining({ option: 'maxEventRounds' }),
+    );
+  });
+
   it('rejects a publisher without afterCommit', () => {
     const options = { ...valid, publisher: { beforeCommit: publisher.beforeCommit } } as unknown as UnitOfWorkOptions;
 
