@@ -88,9 +88,9 @@ A repository from `@InjectRepository()` or `dataSource.getRepository()` still wo
 | `NESTED` | `'nested'` |
 | `MANDATORY`, `NEVER`, `NOT_SUPPORTED`, `SUPPORTS` | No equivalent. |
 
-`'nested'` opens a savepoint and discards the events raised inside it when it rolls back; see [Propagation](propagation.md).
+`'nested'` opens a savepoint and discards the events of aggregates tracked inside it when it rolls back; see [Propagation](propagation.md).
 
-`isolationLevel` takes the strings of TypeORM's isolation level type: `'READ COMMITTED'`, `'READ UNCOMMITTED'`, `'REPEATABLE READ'`, `'SERIALIZABLE'` and `'SNAPSHOT'`.
+`isolationLevel` takes plain strings, not an enum. Replace `IsolationLevel.READ_UNCOMMITTED`, `IsolationLevel.READ_COMMITTED`, `IsolationLevel.REPEATABLE_READ` and `IsolationLevel.SERIALIZABLE` with `'READ UNCOMMITTED'`, `'READ COMMITTED'`, `'REPEATABLE READ'` and `'SERIALIZABLE'`. `'SNAPSHOT'` is accepted only with TypeORM 1.x. It is ignored for `'nested'`.
 
 ## Hooks
 
