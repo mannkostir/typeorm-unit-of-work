@@ -1,0 +1,12 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "experimentalDecorators": true,
+    "module": "nodenext",
+    "moduleResolution": "nodenext",
+    "noEmit": false,
+    "outDir": "dist",
+    "rootDir": "src"
+  },
+  "include": ["src"]
+}

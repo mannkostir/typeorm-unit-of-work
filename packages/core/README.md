@@ -1,5 +1,7 @@
 # typeorm-unit-of-work
 
+[![npm](https://img.shields.io/npm/v/typeorm-unit-of-work)](https://www.npmjs.com/package/typeorm-unit-of-work)
+
 **One transaction, the aggregates it touched, their events published at the right phase.**
 
 A Unit of Work for TypeORM. Open a transaction once and every repository below it joins, at any call depth, through `AsyncLocalStorage`. Aggregates you save are collected, and their domain events are delivered inside the transaction before commit, and again once it has committed. Framework-agnostic, zero runtime dependencies, TypeORM 0.3 and 1.x.
