@@ -106,7 +106,7 @@ Module setup and the `@nestjs/cqrs` bridge are in the [adapter's README](package
 - [Plain TypeORM](examples/plain-typeorm): `UnitOfWork` with before-commit and after-commit handlers, and a rollback that publishes nothing
 - [NestJS and `@nestjs/cqrs`](examples/nestjs-cqrs): `@Transactional()`, a before-commit handler, and an `@EventsHandler` receiving committed events from the `EventBus`
 
-Both run on in-memory SQLite with `npm start`.
+Both run on in-memory SQLite with `npm start`. Inside this repository run `npm run build` first, or follow each example's README.
 
 ## Compared with alternatives
 

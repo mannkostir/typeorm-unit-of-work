@@ -2,7 +2,7 @@
 
 Both libraries carry the current transaction through `AsyncLocalStorage`. The differences that matter when moving code over:
 
-- `typeorm-transactional` patches TypeORM's `DataSource` and `Repository`, so every repository joins the current transaction. This library patches nothing: only repositories from `uow.getRepository()` and the manager from `uow.manager` take part.
+- `typeorm-transactional` patches TypeORM's `DataSource` and `Repository`, so every repository joins the current transaction. This library patches nothing: only repositories from `uow.getRepository()`, the manager from `uow.manager`, and the `TransactionContext` that `run()` passes to its work and to before-commit handlers take part.
 - Side effects after commit are driven by domain events raised on aggregates, rather than by callbacks registered inside the transaction.
 - The core needs no framework; the NestJS adapter is a separate package.
 
@@ -29,6 +29,8 @@ const uow = new UnitOfWork({
   onAfterCommitError: (error, event) => logger.error({ error, event }, 'after-commit handler failed'),
 });
 ```
+
+The DataSource must be initialized before `new UnitOfWork(...)`; otherwise the constructor throws `DataSourceNotInitializedError`.
 
 With NestJS, register `UnitOfWorkModule.forRootAsync` instead; see the [adapter's README](../packages/nestjs/README.md).
 
@@ -90,7 +92,7 @@ A repository from `@InjectRepository()` or `dataSource.getRepository()` still wo
 
 `'nested'` opens a savepoint and discards the events of aggregates tracked inside it when it rolls back; see [Propagation](propagation.md).
 
-`isolationLevel` takes plain strings, not an enum. Replace `IsolationLevel.READ_UNCOMMITTED`, `IsolationLevel.READ_COMMITTED`, `IsolationLevel.REPEATABLE_READ` and `IsolationLevel.SERIALIZABLE` with `'READ UNCOMMITTED'`, `'READ COMMITTED'`, `'REPEATABLE READ'` and `'SERIALIZABLE'`. `'SNAPSHOT'` is accepted only with TypeORM 1.x. It is ignored for `'nested'`.
+`isolationLevel` takes plain strings, not an enum. Replace `IsolationLevel.READ_UNCOMMITTED`, `IsolationLevel.READ_COMMITTED`, `IsolationLevel.REPEATABLE_READ` and `IsolationLevel.SERIALIZABLE` with `'READ UNCOMMITTED'`, `'READ COMMITTED'`, `'REPEATABLE READ'` and `'SERIALIZABLE'`. `'SNAPSHOT'` is accepted only with TypeORM 1.x. It applies only when a new transaction is opened; `'join'` and `'nested'` ignore it inside an existing transaction.
 
 ## Hooks
 
@@ -99,6 +101,8 @@ Before:
 ```ts
 @Transactional()
 async ship(orderId: string): Promise<void> {
+  const order = await this.orders.findOneByOrFail({ id: orderId });
+  order.ship();
   await this.orders.save(order);
   runOnTransactionCommit(() => this.mailer.sendShippingNotice(orderId));
 }

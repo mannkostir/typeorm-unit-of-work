@@ -30,7 +30,7 @@ npm start -w examples/nestjs-cqrs
 
 ## Use it outside this repository
 
-Copy the folder, replace `"typeorm-unit-of-work": "*"` and `"typeorm-unit-of-work-nestjs": "*"` in `package.json` with `"^0.2.0"`, replace `"extends": "../../tsconfig.base.json"` in both tsconfig files with your own compiler options, drop `paths` from `tsconfig.json` and the `alias` from `vitest.config.ts`, then run `npm install && npm start`.
+Copy the folder, replace `"typeorm-unit-of-work": "*"` and `"typeorm-unit-of-work-nestjs": "*"` in `package.json` with `"^0.2.0"`, replace `"extends": "../../tsconfig.base.json"` in both tsconfig files with `"target": "ES2023"`, `"module": "nodenext"`, `"moduleResolution": "nodenext"`, `"strict": true`, `"skipLibCheck": true` and `"experimentalDecorators": true` (add `"noEmit": true` in `tsconfig.json`), drop `paths` from `tsconfig.json` and the `alias` from `vitest.config.ts`, then run `npm install && npm start`.
 
 ## Where to look
 
