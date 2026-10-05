@@ -1,0 +1,11 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "experimentalDecorators": true,
+    "paths": {
+      "typeorm-unit-of-work": ["../../packages/core/src/index.ts"],
+      "typeorm-unit-of-work-nestjs": ["../../packages/nestjs/src/index.ts"]
+    }
+  },
+  "include": ["src", "test", "vitest.config.ts"]
+}
