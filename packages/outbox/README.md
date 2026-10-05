@@ -1,5 +1,7 @@
 # typeorm-unit-of-work-outbox
 
+[![npm](https://img.shields.io/npm/v/typeorm-unit-of-work-outbox)](https://www.npmjs.com/package/typeorm-unit-of-work-outbox)
+
 Transactional outbox writer for [`typeorm-unit-of-work`](https://www.npmjs.com/package/typeorm-unit-of-work). It stores domain events in an outbox table in the same transaction as the aggregates that raised them, so an event is stored if and only if its transaction commits. **Postgres only.**
 
 **It does not deliver events.** A change-data-capture relay reads the committed inserts from the Postgres WAL and publishes them to your broker: Debezium with its Outbox Event Router, or any relay that reads the Debezium outbox layout.

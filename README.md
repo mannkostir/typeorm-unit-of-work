@@ -1,5 +1,9 @@
 # typeorm-unit-of-work
 
+[![npm](https://img.shields.io/npm/v/typeorm-unit-of-work)](https://www.npmjs.com/package/typeorm-unit-of-work)
+[![CI](https://github.com/mannkostir/typeorm-unit-of-work/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/mannkostir/typeorm-unit-of-work/actions/workflows/ci.yml)
+[![licence](https://img.shields.io/npm/l/typeorm-unit-of-work)](LICENSE)
+
 **One transaction, the aggregates it touched, their events published at the right phase.**
 
 A Unit of Work for TypeORM. Open a transaction once and every repository below it joins, at any call depth, without passing an `EntityManager` around. Aggregates you save are collected, and their domain events are delivered inside the transaction before commit, and again once it has committed.
@@ -97,21 +101,25 @@ export class ShippingService {
 
 Module setup and the `@nestjs/cqrs` bridge are in the [adapter's README](packages/nestjs/README.md).
 
+## Examples
+
+- [Plain TypeORM](examples/plain-typeorm): `UnitOfWork` with before-commit and after-commit handlers, and a rollback that publishes nothing
+- [NestJS and `@nestjs/cqrs`](examples/nestjs-cqrs): `@Transactional()`, a before-commit handler, and an `@EventsHandler` receiving committed events from the `EventBus`
+
+Both run on in-memory SQLite with `npm start`.
+
 ## Compared with alternatives
 
 `typeorm-transactional` and `@nestjs-cls/transactional` also propagate transactions through `AsyncLocalStorage`. This library adds aggregate event collection with before-commit and after-commit phases, and its core does not need Nest.
 
-Coming from `typeorm-transactional`:
-
-- Replace its `@Transactional()` with the one from `typeorm-unit-of-work-nestjs`, or wrap the code in `uow.run()`.
-- Repositories from `@InjectRepository()` or `dataSource.getRepository()` are not transactional here: their writes bypass the unit of work and commit on their own. Inside transactional code, use `uow.getRepository(X)`.
-- Replace `runOnTransactionCommit(cb)` with an after-commit handler: raise an event from the aggregate and register the callback with `onAfterCommit`.
+Coming from `typeorm-transactional`? Repositories from `@InjectRepository()` or `dataSource.getRepository()` are not transactional here: inside transactional code, use `uow.getRepository(X)`. The [migration guide](docs/migrating-from-typeorm-transactional.md) maps every decorator, propagation mode and hook.
 
 ## Documentation
 
 - [Events and phases](docs/events.md) — how aggregates are collected, what each phase guarantees, and `commitWhen` for work that returns failures instead of throwing
 - [Propagation](docs/propagation.md) — `join`, `new` and `nested`, savepoints, Postgres and SQLite behaviour, and known limitations
 - [Reference](docs/reference.md) — every option and every error
+- [Migrating from typeorm-transactional](docs/migrating-from-typeorm-transactional.md) — setup, `@Transactional()`, propagation and hooks, side by side
 
 ## Licence
 

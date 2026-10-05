@@ -1,5 +1,7 @@
 # typeorm-unit-of-work-nestjs
 
+[![npm](https://img.shields.io/npm/v/typeorm-unit-of-work-nestjs)](https://www.npmjs.com/package/typeorm-unit-of-work-nestjs)
+
 NestJS adapter for [`typeorm-unit-of-work`](https://www.npmjs.com/package/typeorm-unit-of-work): a global module, a `@Transactional()` method decorator, and a publisher that forwards committed domain events to the `@nestjs/cqrs` `EventBus`.
 
 ## Install
